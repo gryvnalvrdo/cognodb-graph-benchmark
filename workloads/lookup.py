@@ -22,7 +22,7 @@ def run_bolt(driver, node_ids: list[int], platform: str) -> dict:
 def run_arangodb(db, node_ids: list[int]) -> dict:
     queries = {
         "point_lookup": "RETURN DOCUMENT(CONCAT('users/', @id))",
-        "filtered_lookup": "FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows FILTER v.id > @id RETURN COUNT(v)",
+        "filtered_lookup": "WITH users FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows FILTER v.id > @id RETURN COUNT(v)",
     }
 
     results = {}

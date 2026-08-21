@@ -1,5 +1,98 @@
 {
   "platform": "arangodb",
-  "timestamp": "2026-08-21T08:19:45.037313+00:00",
-  "total_benchmark_sec": 2.08
+  "timestamp": "2026-08-21T08:24:29.062433+00:00",
+  "load": {
+    "node_count": 28000,
+    "edge_count": 138593,
+    "node_load_sec": 15.406,
+    "edge_load_sec": 51.537,
+    "nodes_per_sec": 1817.4,
+    "edges_per_sec": 2689.2,
+    "total_load_sec": 66.943
+  },
+  "traversal": {
+    "1_hop": {
+      "p50_ms": 245.897,
+      "p95_ms": 318.74,
+      "mean_ms": 261.741,
+      "min_ms": 241.378,
+      "max_ms": 397.291,
+      "iterations": 100
+    },
+    "2_hop": {
+      "p50_ms": 269.746,
+      "p95_ms": 400.145,
+      "mean_ms": 293.725,
+      "min_ms": 244.934,
+      "max_ms": 706.366,
+      "iterations": 100
+    },
+    "3_hop": {
+      "p50_ms": 250.314,
+      "p95_ms": 334.502,
+      "mean_ms": 271.907,
+      "min_ms": 240.004,
+      "max_ms": 580.744,
+      "iterations": 100
+    }
+  },
+  "lookup": {
+    "point_lookup": {
+      "p50_ms": 243.906,
+      "p95_ms": 299.115,
+      "mean_ms": 252.339,
+      "min_ms": 240.037,
+      "max_ms": 305.11,
+      "iterations": 100
+    },
+    "filtered_lookup": {
+      "p50_ms": 245.542,
+      "p95_ms": 299.671,
+      "mean_ms": 253.458,
+      "min_ms": 240.778,
+      "max_ms": 330.897,
+      "iterations": 100
+    }
+  },
+  "aggregation": {
+    "count_follows": {
+      "p50_ms": 244.302,
+      "p95_ms": 299.699,
+      "mean_ms": 251.287,
+      "min_ms": 240.172,
+      "max_ms": 320.373,
+      "iterations": 100
+    },
+    "count_followers": {
+      "p50_ms": 244.576,
+      "p95_ms": 289.258,
+      "mean_ms": 250.984,
+      "min_ms": 241.714,
+      "max_ms": 300.984,
+      "iterations": 100
+    }
+  },
+  "mixed": {
+    "concurrency_sweep": [
+      {
+        "concurrency": 1,
+        "total_ops": 118,
+        "duration_sec": 30.24,
+        "qps": 3.9
+      },
+      {
+        "concurrency": 10,
+        "total_ops": 1123,
+        "duration_sec": 30.26,
+        "qps": 37.11
+      },
+      {
+        "concurrency": 40,
+        "total_ops": 3592,
+        "duration_sec": 30.86,
+        "qps": 116.4
+      }
+    ]
+  },
+  "total_benchmark_sec": 366.95
 }

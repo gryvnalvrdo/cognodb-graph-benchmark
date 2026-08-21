@@ -96,9 +96,9 @@ def run_bolt(driver, node_ids: list[int], platform: str) -> dict:
 
 def run_arangodb(db, node_ids: list[int]) -> dict:
     aql_queries = {
-        "1_hop": "FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows LIMIT 500 RETURN v",
-        "2_hop": "FOR v IN 1..2 OUTBOUND CONCAT('users/', @id) follows LIMIT 500 RETURN v",
-        "3_hop": "FOR v IN 1..3 OUTBOUND CONCAT('users/', @id) follows LIMIT 200 RETURN v",
+        "1_hop": "WITH users FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows LIMIT 500 RETURN v",
+        "2_hop": "WITH users FOR v IN 1..2 OUTBOUND CONCAT('users/', @id) follows LIMIT 500 RETURN v",
+        "3_hop": "WITH users FOR v IN 1..3 OUTBOUND CONCAT('users/', @id) follows LIMIT 200 RETURN v",
     }
 
     results = {}

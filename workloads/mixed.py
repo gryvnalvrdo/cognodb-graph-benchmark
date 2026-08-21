@@ -6,15 +6,12 @@ from typing import Callable
 DURATION_SEC = 30
 
 
-def _worker(fn: Callable, node_ids: list[int], duration_sec: int, results: list, errors: list):
+def _worker(fn: Callable, node_ids: list[int], duration_sec: int, results: list):
     count = 0
     deadline = time.perf_counter() + duration_sec
     while time.perf_counter() < deadline:
-        try:
-            fn(random.choice(node_ids))
-            count += 1
-        except Exception as e:
-            errors.append(f"{type(e).__name__}: {e}")
+        fn(random.choice(node_ids))
+        count += 1
     results.append(count)
 
 
@@ -28,9 +25,8 @@ def _run_concurrent(read_fn: Callable, write_fn: Callable, node_ids: list[int], 
             write_fn(nid)
 
     results = []
-    errors = []
     threads = [
-        threading.Thread(target=_worker, args=(mixed_fn, node_ids, DURATION_SEC, results, errors))
+        threading.Thread(target=_worker, args=(mixed_fn, node_ids, DURATION_SEC, results))
         for _ in range(concurrency)
     ]
     t0 = time.perf_counter()
@@ -40,18 +36,9 @@ def _run_concurrent(read_fn: Callable, write_fn: Callable, node_ids: list[int], 
         t.join()
     elapsed = time.perf_counter() - t0
 
-    if errors:
-        error_counts: dict[str, int] = {}
-        for err in errors:
-            error_counts[err] = error_counts.get(err, 0) + 1
-        print(f"    warning: {len(errors)} failed ops during mixed workload (concurrency={concurrency})")
-        for err, cnt in sorted(error_counts.items(), key=lambda x: -x[1])[:5]:
-            print(f"      - {cnt}x {err}")
-
     return {
         "concurrency": concurrency,
         "total_ops": sum(results),
-        "failed_ops": len(errors),
         "duration_sec": round(elapsed, 2),
         "qps": round(sum(results) / elapsed, 2),
     }
@@ -80,7 +67,7 @@ def run_bolt(driver_or_graph, node_ids: list[int], platform: str) -> dict:
 def run_arangodb(db, node_ids: list[int]) -> dict:
     def read_fn(nid):
         list(db.aql.execute(
-            "FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows LIMIT 100 RETURN v",
+            "WITH users FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows LIMIT 100 RETURN v",
             bind_vars={"id": str(nid)},
         ))
 

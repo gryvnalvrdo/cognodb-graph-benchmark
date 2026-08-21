@@ -1,104 +1,193 @@
+"""
+Generate PNG charts from benchmark results (results/*.json) into results/charts/.
+
+Run after all platforms have been benchmarked:
+    python scripts/generate_charts.py
+"""
 import json
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # headless — no display needed
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import seaborn as sns
+
 RESULTS_DIR = Path(__file__).parent.parent / "results"
+CHARTS_DIR = RESULTS_DIR / "charts"
 PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb", "falkordb"]
+
+# Consistent color per platform across every chart, and a display label
+PLATFORM_LABELS = {
+    "cognodb": "CognoDB",
+    "neo4j": "Neo4j AuraDB",
+    "memgraph": "Memgraph Cloud",
+    "arangodb": "ArangoDB Oasis",
+    "falkordb": "FalkorDB",
+}
+PLATFORM_COLORS = {
+    "cognodb": "#4C72B0",
+    "neo4j": "#DD8452",
+    "memgraph": "#55A868",
+    "arangodb": "#C44E52",
+    "falkordb": "#8172B2",
+}
+
+sns.set_theme(style="whitegrid")
 
 
 def _load_results() -> dict:
-    return {
-        p: json.loads((RESULTS_DIR / f"{p}.json").read_text())
-        for p in PLATFORMS
-        if (RESULTS_DIR / f"{p}.json").exists()
-    }
-
-
-def _fmt(val, unit="") -> str:
-    if not val:
-        return "N/A"
-    return f"{val:,.1f}{unit}" if isinstance(val, float) else f"{val:,}{unit}"
-
-
-def table_load(data: dict) -> str:
-    rows = ["## Data Loading Throughput", "", "| Platform | Nodes/sec | Edges/sec | Total Load Time |", "|---|---|---|---|"]
+    data = {}
     for p in PLATFORMS:
-        if p not in data or not isinstance(data[p].get("load"), dict):
-            continue
-        l = data[p]["load"]
-        rows.append(f"| {p.capitalize()} | {_fmt(l.get('nodes_per_sec'))} | {_fmt(l.get('edges_per_sec'))} | {_fmt(l.get('total_load_sec'), 's')} |")
-    return "\n".join(rows)
+        path = RESULTS_DIR / f"{p}.json"
+        if path.exists():
+            data[p] = json.loads(path.read_text())
+    return data
 
 
-def table_traversal(data: dict) -> str:
-    rows = ["## Traversal Latency (p50 / p95 ms)", "", "| Platform | 1-hop p50 | 1-hop p95 | 2-hop p50 | 2-hop p95 | 3-hop p50 | 3-hop p95 |", "|---|---|---|---|---|---|---|"]
-    for p in PLATFORMS:
-        if p not in data or "traversal" not in data[p]:
-            continue
-        t = data[p]["traversal"]
-        row = f"| {p.capitalize()} "
-        for hop in ["1_hop", "2_hop", "3_hop"]:
-            h = t.get(hop, {})
-            row += f"| {_fmt(h.get('p50_ms'), 'ms')} | {_fmt(h.get('p95_ms'), 'ms')} "
-        rows.append(row + "|")
-    return "\n".join(rows)
+def _present_platforms(data: dict) -> list[str]:
+    """Platforms with results, in the fixed PLATFORMS order."""
+    return [p for p in PLATFORMS if p in data]
 
 
-def table_lookup(data: dict) -> str:
-    rows = ["## Lookup Latency (p50 / p95 ms)", "", "| Platform | Point p50 | Point p95 | Filtered p50 | Filtered p95 |", "|---|---|---|---|---|"]
-    for p in PLATFORMS:
-        if p not in data or "lookup" not in data[p]:
-            continue
-        l = data[p]["lookup"]
-        point = l.get("point_lookup", {})
-        filt = l.get("filtered_lookup", {})
-        rows.append(
-            f"| {p.capitalize()} | {_fmt(point.get('p50_ms'), 'ms')} | {_fmt(point.get('p95_ms'), 'ms')} "
-            f"| {_fmt(filt.get('p50_ms'), 'ms')} | {_fmt(filt.get('p95_ms'), 'ms')} |"
-        )
-    return "\n".join(rows)
+def _bar_colors(platforms: list[str]) -> list[str]:
+    return [PLATFORM_COLORS[p] for p in platforms]
 
 
-def table_aggregation(data: dict) -> str:
-    rows = ["## Aggregation Latency (p50 / p95 ms)", "", "| Platform | Count Follows p50 | Count Follows p95 | Count Followers p50 | Count Followers p95 |", "|---|---|---|---|---|"]
-    for p in PLATFORMS:
-        if p not in data or "aggregation" not in data[p]:
-            continue
-        a = data[p]["aggregation"]
-        cf = a.get("count_follows", {})
-        cr = a.get("count_followers", {})
-        rows.append(
-            f"| {p.capitalize()} | {_fmt(cf.get('p50_ms'), 'ms')} | {_fmt(cf.get('p95_ms'), 'ms')} "
-            f"| {_fmt(cr.get('p50_ms'), 'ms')} | {_fmt(cr.get('p95_ms'), 'ms')} |"
-        )
-    return "\n".join(rows)
+def _labels(platforms: list[str]) -> list[str]:
+    return [PLATFORM_LABELS[p] for p in platforms]
 
 
-def table_mixed_qps(data: dict) -> str:
-    rows = ["## Mixed Workload Throughput (QPS)", "", "| Platform | 1 client | 10 clients | 40 clients |", "|---|---|---|---|"]
-    for p in PLATFORMS:
-        if p not in data or "mixed" not in data[p]:
-            continue
+def _save(fig, name: str) -> None:
+    CHARTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = CHARTS_DIR / name
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"  wrote {out_path}")
+
+
+def chart_load_throughput(data: dict) -> None:
+    platforms = [p for p in _present_platforms(data) if isinstance(data[p].get("load"), dict)]
+    if not platforms:
+        return
+    nodes_per_sec = [data[p]["load"]["nodes_per_sec"] for p in platforms]
+    edges_per_sec = [data[p]["load"]["edges_per_sec"] for p in platforms]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+    for ax, values, title in [
+        (axes[0], nodes_per_sec, "Nodes / sec"),
+        (axes[1], edges_per_sec, "Edges / sec"),
+    ]:
+        ax.bar(_labels(platforms), values, color=_bar_colors(platforms))
+        ax.set_title(title)
+        ax.set_yscale("log")
+        ax.yaxis.set_major_formatter(mticker.ScalarFormatter())
+        ax.tick_params(axis="x", rotation=25)
+        for i, v in enumerate(values):
+            ax.text(i, v, f"{v:,.0f}", ha="center", va="bottom", fontsize=8)
+
+    fig.suptitle("Data Loading Throughput (log scale)")
+    _save(fig, "load_throughput.png")
+
+
+def _hop_latency_chart(data: dict, category: str, hop_keys: list[str], hop_titles: list[str],
+                        filename: str, suptitle: str) -> None:
+    platforms = [p for p in _present_platforms(data) if category in data[p]]
+    if not platforms:
+        return
+
+    fig, axes = plt.subplots(1, len(hop_keys), figsize=(4.2 * len(hop_keys), 4.5), sharey=False)
+    if len(hop_keys) == 1:
+        axes = [axes]
+
+    for ax, hop_key, hop_title in zip(axes, hop_keys, hop_titles):
+        p50s = [data[p][category].get(hop_key, {}).get("p50_ms") or 0 for p in platforms]
+        p95s = [data[p][category].get(hop_key, {}).get("p95_ms") or 0 for p in platforms]
+
+        x = range(len(platforms))
+        width = 0.35
+        ax.bar([i - width / 2 for i in x], p50s, width, label="p50", color=_bar_colors(platforms), alpha=0.9)
+        ax.bar([i + width / 2 for i in x], p95s, width, label="p95", color=_bar_colors(platforms), alpha=0.5)
+        ax.set_title(hop_title)
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(_labels(platforms), rotation=25, ha="right")
+        ax.set_yscale("log")
+        ax.set_ylabel("ms")
+        ax.legend(fontsize=8)
+
+    fig.suptitle(suptitle)
+    _save(fig, filename)
+
+
+def chart_traversal(data: dict) -> None:
+    _hop_latency_chart(
+        data, "traversal",
+        hop_keys=["1_hop", "2_hop", "3_hop"],
+        hop_titles=["1-hop", "2-hop", "3-hop"],
+        filename="traversal_latency.png",
+        suptitle="Traversal Latency — p50 vs p95 (log scale, ms)",
+    )
+
+
+def chart_lookup(data: dict) -> None:
+    _hop_latency_chart(
+        data, "lookup",
+        hop_keys=["point_lookup", "filtered_lookup"],
+        hop_titles=["Point lookup", "Filtered lookup"],
+        filename="lookup_latency.png",
+        suptitle="Lookup Latency — p50 vs p95 (log scale, ms)",
+    )
+
+
+def chart_aggregation(data: dict) -> None:
+    _hop_latency_chart(
+        data, "aggregation",
+        hop_keys=["count_follows", "count_followers"],
+        hop_titles=["Count follows", "Count followers"],
+        filename="aggregation_latency.png",
+        suptitle="Aggregation Latency — p50 vs p95 (log scale, ms)",
+    )
+
+
+def chart_mixed_qps(data: dict) -> None:
+    platforms = [p for p in _present_platforms(data) if "mixed" in data[p]]
+    if not platforms:
+        return
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for p in platforms:
         sweep = data[p]["mixed"].get("concurrency_sweep", [])
-        qps = [_fmt(s.get("qps"), " qps") for s in sweep] + ["N/A"] * 3
-        rows.append(f"| {p.capitalize()} | {qps[0]} | {qps[1]} | {qps[2]} |")
-    return "\n".join(rows)
+        if not sweep:
+            continue
+        xs = [s["concurrency"] for s in sweep]
+        ys = [s["qps"] for s in sweep]
+        ax.plot(xs, ys, marker="o", label=PLATFORM_LABELS[p], color=PLATFORM_COLORS[p])
+
+    ax.set_xlabel("Concurrent clients")
+    ax.set_ylabel("Queries / sec")
+    ax.set_yscale("log")
+    ax.set_xscale("log")
+    ax.set_xticks([1, 10, 40])
+    ax.set_xticklabels(["1", "10", "40"])
+    ax.set_title("Mixed Workload Throughput vs Concurrency (log-log)")
+    ax.legend(fontsize=8)
+    _save(fig, "mixed_qps.png")
 
 
-def main():
+def main() -> None:
     data = _load_results()
     if not data:
-        print("No results found.")
+        print("No results found in results/*.json — run the benchmark harness first.")
         return
-    output = "\n\n".join([
-        table_load(data),
-        table_traversal(data),
-        table_lookup(data),
-        table_aggregation(data),
-        table_mixed_qps(data),
-    ])
-    out_path = RESULTS_DIR / "tables.md"
-    out_path.write_text(output)
-    print(f"Tables written to {out_path}")
+
+    print(f"Generating charts for: {', '.join(_present_platforms(data))}")
+    chart_load_throughput(data)
+    chart_traversal(data)
+    chart_lookup(data)
+    chart_aggregation(data)
+    chart_mixed_qps(data)
+    print(f"\nDone. Charts written to {CHARTS_DIR}/")
 
 
 if __name__ == "__main__":
