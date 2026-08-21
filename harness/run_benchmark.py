@@ -31,13 +31,16 @@ def _run_bolt(platform: str, dry_run: bool, skip_load: bool) -> dict:
     from loaders.driver_bolt import get_driver
     from workloads import traversal, lookup, aggregation, mixed
 
-    loader = importlib.import_module(f"loaders.{platform}")
     result = {"platform": platform, "timestamp": datetime.now(timezone.utc).isoformat()}
 
-    result["load"] = loader.run(dry_run=dry_run).get("load", {}) if not skip_load else "skipped"
-
     if dry_run:
+        driver = get_driver(platform.upper())
+        driver.close()
+        print(f"[{platform}] dry-run: connectivity OK")
         return result
+
+    loader = importlib.import_module(f"loaders.{platform}")
+    result["load"] = loader.run().get("load", {}) if not skip_load else "skipped"
 
     driver = get_driver(platform.upper())
     node_ids = _load_node_ids()
@@ -58,11 +61,13 @@ def _run_falkordb(dry_run: bool, skip_load: bool) -> dict:
     from workloads import traversal, lookup, aggregation, mixed
 
     result = {"platform": "falkordb", "timestamp": datetime.now(timezone.utc).isoformat()}
-    result["load"] = falkordb_loader.run(dry_run=dry_run).get("load", {}) if not skip_load else "skipped"
 
     if dry_run:
+        graph = get_graph()
+        print("[falkordb] dry-run: connectivity OK")
         return result
 
+    result["load"] = falkordb_loader.run().get("load", {}) if not skip_load else "skipped"
     graph = get_graph()
     node_ids = _load_node_ids()
     sample = random.sample(node_ids, min(SAMPLE_SIZE, len(node_ids)))
@@ -81,11 +86,13 @@ def _run_arangodb(dry_run: bool, skip_load: bool) -> dict:
     from workloads import traversal, lookup, aggregation, mixed
 
     result = {"platform": "arangodb", "timestamp": datetime.now(timezone.utc).isoformat()}
-    result["load"] = arango_loader.run(dry_run=dry_run).get("load", {}) if not skip_load else "skipped"
 
     if dry_run:
+        db = get_db()
+        print("[arangodb] dry-run: connectivity OK")
         return result
 
+    result["load"] = arango_loader.run().get("load", {}) if not skip_load else "skipped"
     db = get_db()
     node_ids = _load_node_ids()
     sample = random.sample(node_ids, min(SAMPLE_SIZE, len(node_ids)))
