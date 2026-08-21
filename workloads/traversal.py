@@ -39,11 +39,12 @@ def _run_latency(fn: Callable, node_ids: list[int]) -> list[float]:
                 fn(node_id)
                 latencies.append((time.perf_counter() - t0) * 1000)
                 break
-            except (ServiceUnavailable, SessionExpired, OSError):
+            except Exception:
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_DELAY_SEC)
                 else:
                     latencies.append(float("nan"))
+
     return [x for x in latencies if not (isinstance(x, float) and x != x)]
 
 
@@ -54,8 +55,8 @@ def run_bolt(driver, node_ids: list[int], platform: str) -> dict:
 
     queries = {
         "1_hop": "MATCH (:User {id: $id})-[:FOLLOWS]->(n) RETURN n LIMIT 500",
-        "2_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..2]->(n) RETURN n LIMIT 500",
-        "3_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..3]->(n) RETURN n LIMIT 200",
+        "2_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..2]->(n) RETURN n LIMIT 100",
+        "3_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..3]->(n) RETURN n LIMIT 25",
     }
 
     results = {}
