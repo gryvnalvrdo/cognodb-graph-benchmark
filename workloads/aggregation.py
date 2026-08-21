@@ -1,15 +1,10 @@
 from workloads.traversal import _percentiles, _run_latency
 
 
-def run_bolt(driver_or_graph, node_ids: list[int], platform: str) -> dict:
-    is_falkor = hasattr(driver_or_graph, "query")
-
+def run_bolt(driver, node_ids: list[int], platform: str) -> dict:
     def execute(q: str, nid: int):
-        if is_falkor:
-            driver_or_graph.query(q, {"id": nid})
-        else:
-            with driver_or_graph.session() as s:
-                s.run(q, id=nid).consume()
+        with driver.session() as s:
+            s.run(q, id=nid).consume()
 
     queries = {
         "count_follows": "MATCH (:User {id: $id})-[r:FOLLOWS]->() RETURN count(r) AS cnt",

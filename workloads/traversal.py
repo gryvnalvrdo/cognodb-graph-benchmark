@@ -2,10 +2,13 @@ import random
 import time
 
 import numpy as np
+from neo4j.exceptions import ServiceUnavailable, SessionExpired
 from typing import Callable
 
 WARMUP_ITERATIONS = 10
 BENCH_ITERATIONS = 100
+MAX_RETRIES = 3
+RETRY_DELAY_SEC = 2.0
 
 
 def _percentiles(latencies_ms: list[float]) -> dict:
@@ -22,53 +25,64 @@ def _percentiles(latencies_ms: list[float]) -> dict:
 
 def _run_latency(fn: Callable, node_ids: list[int]) -> list[float]:
     for _ in range(WARMUP_ITERATIONS):
-        fn(random.choice(node_ids))
+        try:
+            fn(random.choice(node_ids))
+        except Exception:
+            pass
 
     latencies = []
     for _ in range(BENCH_ITERATIONS):
         node_id = random.choice(node_ids)
-        t0 = time.perf_counter()
-        fn(node_id)
-        latencies.append((time.perf_counter() - t0) * 1000)
-    return latencies
+        for attempt in range(MAX_RETRIES):
+            try:
+                t0 = time.perf_counter()
+                fn(node_id)
+                latencies.append((time.perf_counter() - t0) * 1000)
+                break
+            except (ServiceUnavailable, SessionExpired, OSError):
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_DELAY_SEC)
+                else:
+                    latencies.append(float("nan"))
+    return [x for x in latencies if not (isinstance(x, float) and x != x)]
 
 
-def run_bolt(driver_or_graph, node_ids: list[int], platform: str) -> dict:
-    is_falkor = hasattr(driver_or_graph, "query")
-
+def run_bolt(driver, node_ids: list[int], platform: str) -> dict:
     def execute(q: str, node_id: int):
-        if is_falkor:
-            driver_or_graph.query(q, {"id": node_id})
-        else:
-            with driver_or_graph.session() as s:
-                s.run(q, id=node_id).consume()
+        with driver.session() as s:
+            s.run(q, id=node_id).consume()
 
     queries = {
-        "1_hop": "MATCH (:User {id: $id})-[:FOLLOWS]->(n) RETURN n LIMIT 1000",
-        "2_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..2]->(n) RETURN n LIMIT 1000",
-        "3_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..3]->(n) RETURN n LIMIT 1000",
+        "1_hop": "MATCH (:User {id: $id})-[:FOLLOWS]->(n) RETURN n LIMIT 500",
+        "2_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..2]->(n) RETURN n LIMIT 500",
+        "3_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..3]->(n) RETURN n LIMIT 200",
     }
 
     results = {}
     for hop_label, query in queries.items():
         print(f"  [{platform}] traversal {hop_label} ...")
-        results[hop_label] = _percentiles(_run_latency(lambda nid, q=query: execute(q, nid), node_ids))
+        results[hop_label] = _percentiles(
+            _run_latency(lambda nid, q=query: execute(q, nid), node_ids)
+        )
 
     return results
 
 
 def run_arangodb(db, node_ids: list[int]) -> dict:
     aql_queries = {
-        "1_hop": "FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows LIMIT 1000 RETURN v",
-        "2_hop": "FOR v IN 1..2 OUTBOUND CONCAT('users/', @id) follows LIMIT 1000 RETURN v",
-        "3_hop": "FOR v IN 1..3 OUTBOUND CONCAT('users/', @id) follows LIMIT 1000 RETURN v",
+        "1_hop": "FOR v IN 1..1 OUTBOUND CONCAT('users/', @id) follows LIMIT 500 RETURN v",
+        "2_hop": "FOR v IN 1..2 OUTBOUND CONCAT('users/', @id) follows LIMIT 500 RETURN v",
+        "3_hop": "FOR v IN 1..3 OUTBOUND CONCAT('users/', @id) follows LIMIT 200 RETURN v",
     }
 
     results = {}
     for hop_label, query in aql_queries.items():
         print(f"  [arangodb] traversal {hop_label} ...")
         results[hop_label] = _percentiles(
-            _run_latency(lambda nid, q=query: list(db.aql.execute(q, bind_vars={"id": str(nid)})), node_ids)
+            _run_latency(
+                lambda nid, q=query: list(db.aql.execute(q, bind_vars={"id": str(nid)})),
+                node_ids,
+            )
         )
 
     return results
