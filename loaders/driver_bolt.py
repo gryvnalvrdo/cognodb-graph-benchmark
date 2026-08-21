@@ -3,14 +3,23 @@ import time
 from neo4j import GraphDatabase, Driver
 
 
-def get_driver(platform: str) -> Driver:
+def get_driver(platform: str, retries: int = 5, delay_sec: float = 10.0) -> Driver:
     prefix = platform.upper()
     uri = os.environ[f"{prefix}_URI"]
     user = os.environ[f"{prefix}_USER"]
     password = os.environ[f"{prefix}_PASSWORD"]
-    driver = GraphDatabase.driver(uri, auth=(user, password))
-    driver.verify_connectivity()
-    return driver
+
+    for attempt in range(retries):
+        try:
+            driver = GraphDatabase.driver(uri, auth=(user, password))
+            driver.verify_connectivity()
+            return driver
+        except Exception as e:
+            if attempt < retries - 1:
+                print(f"[{platform}] Connection attempt {attempt + 1} failed, retrying in {delay_sec}s ...")
+                time.sleep(delay_sec)
+            else:
+                raise
 
 
 def create_indexes(driver: Driver) -> None:
