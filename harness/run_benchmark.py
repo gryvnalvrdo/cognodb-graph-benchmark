@@ -55,27 +55,27 @@ def _run_bolt(platform: str, dry_run: bool, skip_load: bool) -> dict:
     return result
 
 
-def _run_falkordb(dry_run: bool, skip_load: bool) -> dict:
-    from loaders import falkordb as falkordb_loader
-    from loaders.falkordb import get_graph
-    from workloads import traversal, lookup, aggregation, mixed
+def _run_tigergraph(dry_run: bool, skip_load: bool) -> dict:
+    from loaders import tigergraph as tg_loader
+    from loaders.tigergraph import get_conn
+    from workloads import tigergraph as tg_workloads
 
-    result = {"platform": "falkordb", "timestamp": datetime.now(timezone.utc).isoformat()}
+    result = {"platform": "tigergraph", "timestamp": datetime.now(timezone.utc).isoformat()}
 
     if dry_run:
-        graph = get_graph()
-        print("[falkordb] dry-run: connectivity OK")
+        get_conn()
+        print("[tigergraph] dry-run: connectivity OK")
         return result
 
-    result["load"] = falkordb_loader.run().get("load", {}) if not skip_load else "skipped"
-    graph = get_graph()
+    result["load"] = tg_loader.run().get("load", {}) if not skip_load else "skipped"
+    conn = get_conn()
     node_ids = _load_node_ids()
     sample = random.sample(node_ids, min(SAMPLE_SIZE, len(node_ids)))
 
-    result["traversal"] = traversal.run_bolt(graph, sample, "falkordb")
-    result["lookup"] = lookup.run_bolt(graph, sample, "falkordb")
-    result["aggregation"] = aggregation.run_bolt(graph, sample, "falkordb")
-    result["mixed"] = mixed.run_bolt(graph, node_ids, "falkordb")
+    result["traversal"] = tg_workloads.run_traversal(conn, sample)
+    result["lookup"] = tg_workloads.run_lookup(conn, sample)
+    result["aggregation"] = tg_workloads.run_aggregation(conn, sample)
+    result["mixed"] = tg_workloads.run_mixed(conn, node_ids)
 
     return result
 
@@ -107,7 +107,7 @@ def _run_arangodb(dry_run: bool, skip_load: bool) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="CognoDB Benchmark Harness")
-    parser.add_argument("--platform", required=True, choices=["cognodb", "neo4j", "memgraph", "arangodb", "falkordb"])
+    parser.add_argument("--platform", required=True, choices=["cognodb", "neo4j", "memgraph", "arangodb", "tigergraph"])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-load", action="store_true")
     args = parser.parse_args()
@@ -122,8 +122,8 @@ def main():
 
     if platform in ("cognodb", "neo4j", "memgraph"):
         result = _run_bolt(platform, args.dry_run, args.skip_load)
-    elif platform == "falkordb":
-        result = _run_falkordb(args.dry_run, args.skip_load)
+    elif platform == "tigergraph":
+        result = _run_tigergraph(args.dry_run, args.skip_load)
     else:
         result = _run_arangodb(args.dry_run, args.skip_load)
 
