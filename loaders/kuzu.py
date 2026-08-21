@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 import time
 from pathlib import Path
 
@@ -7,7 +8,6 @@ import kuzu
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 DB_PATH = Path(__file__).parent.parent / "data" / "kuzu_db"
-BATCH_SIZE = 5000
 
 
 def get_db():
@@ -31,40 +31,26 @@ def setup_schema(conn) -> None:
         pass
 
 
-def load_nodes(conn, node_ids: list[int]) -> float:
-    start = time.perf_counter()
-    for i in range(0, len(node_ids), BATCH_SIZE):
-        batch = node_ids[i : i + BATCH_SIZE]
-        params = [{"id": nid} for nid in batch]
-        conn.execute("UNWIND $rows AS row CREATE (:User {id: row.id})", {"rows": params})
-    return time.perf_counter() - start
-
-
-def load_edges(conn, edges: list[tuple[int, int]]) -> float:
-    start = time.perf_counter()
-    for i in range(0, len(edges), BATCH_SIZE):
-        batch = edges[i : i + BATCH_SIZE]
-        params = [{"src": s, "dst": d} for s, d in batch]
-        conn.execute(
-            "UNWIND $rows AS row "
-            "MATCH (a:User {id: row.src}), (b:User {id: row.dst}) "
-            "CREATE (a)-[:FOLLOWS]->(b)",
-            {"rows": params},
-        )
-    return time.perf_counter() - start
-
-
 def run(dry_run: bool = False) -> dict:
+    import shutil
+
     print("[kuzu] Initializing ...")
+
+    if DB_PATH.exists():
+        shutil.rmtree(DB_PATH)
+
     db = get_db()
     conn = get_conn(db)
 
-    with open(DATA_DIR / "nodes.csv") as f:
-        nodes = [int(row["id"]) for row in csv.DictReader(f)]
-    with open(DATA_DIR / "edges.csv") as f:
-        edges = [(int(r["source_id"]), int(r["target_id"])) for r in csv.DictReader(f)]
+    nodes_csv = DATA_DIR / "nodes.csv"
+    edges_csv = DATA_DIR / "edges.csv"
 
-    print(f"[kuzu] {len(nodes):,} nodes | {len(edges):,} edges")
+    with open(nodes_csv) as f:
+        node_count = sum(1 for _ in csv.DictReader(f))
+    with open(edges_csv) as f:
+        edge_count = sum(1 for _ in csv.DictReader(f))
+
+    print(f"[kuzu] {node_count:,} nodes | {edge_count:,} edges")
 
     if dry_run:
         print("[kuzu] dry-run: OK")
@@ -72,18 +58,31 @@ def run(dry_run: bool = False) -> dict:
 
     setup_schema(conn)
 
-    t_nodes = load_nodes(conn, nodes)
-    t_edges = load_edges(conn, edges)
+    nodes_path = str(nodes_csv).replace("\\", "/")
+    edges_path = str(edges_csv).replace("\\", "/")
+
+    print("[kuzu] Loading nodes via COPY FROM ...")
+    t0 = time.perf_counter()
+    conn.execute(f"COPY User FROM '{nodes_path}' (header=true)")
+    t_nodes = time.perf_counter() - t0
+
+    print("[kuzu] Loading edges via COPY FROM ...")
+    t1 = time.perf_counter()
+    conn.execute(
+        f"COPY FOLLOWS FROM '{edges_path}' "
+        f"(header=true, from='source_id', to='target_id')"
+    )
+    t_edges = time.perf_counter() - t1
 
     return {
         "platform": "kuzu",
         "load": {
-            "node_count": len(nodes),
-            "edge_count": len(edges),
+            "node_count": node_count,
+            "edge_count": edge_count,
             "node_load_sec": round(t_nodes, 3),
             "edge_load_sec": round(t_edges, 3),
-            "nodes_per_sec": round(len(nodes) / t_nodes, 1),
-            "edges_per_sec": round(len(edges) / t_edges, 1),
+            "nodes_per_sec": round(node_count / t_nodes, 1),
+            "edges_per_sec": round(edge_count / t_edges, 1),
             "total_load_sec": round(t_nodes + t_edges, 3),
         },
     }

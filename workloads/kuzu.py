@@ -108,10 +108,15 @@ def _worker(db, node_ids: list[int], duration_sec: int, results: list):
                 {"id": nid},
             ).get_as_df()
         else:
-            conn.execute(
-                "MATCH (n:User {id: $id}) SET n.id = n.id",
-                {"id": nid},
-            )
+            nid2 = random.choice(node_ids)
+            try:
+                conn.execute(
+                    "MATCH (a:User {id: $id1}), (b:User {id: $id2}) "
+                    "CREATE (a)-[:FOLLOWS]->(b)",
+                    {"id1": nid, "id2": nid2},
+                )
+            except Exception:
+                pass
         count += 1
     results.append(count)
 

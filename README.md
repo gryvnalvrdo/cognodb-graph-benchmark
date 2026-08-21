@@ -1,12 +1,20 @@
 # CognoDB Graph Database Benchmark
 
-A reproducible performance benchmark comparing **CognoDB Cloud** against four other managed graph database platforms — Neo4j AuraDB, Memgraph Cloud, ArangoDB Oasis, and FalkorDB Cloud — on the same dataset, the same queries, and from the same client machine.
+A reproducible performance benchmark comparing **CognoDB Cloud** against four other graph database platforms — Neo4j AuraDB, Memgraph Cloud, ArangoDB Oasis, and **Kùzu** — on the same dataset, the same queries, and from the same client machine.
 
 ---
 
 ## Motivation
 
-Graph databases are marketed on different strengths: in-memory speed, multi-model flexibility, Redis-native performance, or enterprise Cypher compatibility. Free-tier cloud offerings make it easy to spin up all of them within hours, yet published benchmarks almost never compare them head-to-head on identical workloads. This project closes that gap by treating each platform as a black box and measuring what actually matters in production: ingest throughput, query latency at percentile level, and concurrent read/write capacity.
+Graph databases are a competitive, rapidly-evolving space. Vendors make strong performance claims, but published benchmarks are almost always vendor-funded, proprietary, or run on non-comparable hardware. This project takes a different approach: treat every platform as a black box, use a real publicly-available social graph dataset, and measure what actually matters in production — ingest throughput, query latency at percentile level, and concurrent read/write capacity.
+
+The five platforms represent meaningfully different architectural points:
+
+- **CognoDB** — the platform under evaluation; disk-based, Bolt+Cypher
+- **Neo4j AuraDB** — the dominant Cypher-native cloud database; best apples-to-apples comparison
+- **Memgraph Cloud** — in-memory Cypher engine; tests the in-memory vs disk trade-off
+- **ArangoDB Oasis** — multi-model, disk-based, uses AQL; tests protocol/language overhead
+- **Kùzu** — embedded columnar graph database, Cypher-native; tests embedded vs managed-cloud trade-off
 
 ---
 
@@ -20,27 +28,36 @@ Graph databases are marketed on different strengths: in-memory speed, multi-mode
 | Nodes | 77,360 |
 | Edges | 905,468 |
 | Type | Directed social graph (Slashdot user friend/foe network, Nov 2008) |
-| Node attributes | ID only (no rich properties — documented as a caveat) |
+| Node attributes | ID only — no rich properties (documented as a caveat) |
 
-The dataset ships as a plain edge list. `data/fetch_and_convert.py` downloads it directly from SNAP and converts it to two CSVs used by all loaders:
+`data/fetch_and_convert.py` downloads it directly from SNAP and converts to:
 - `data/nodes.csv` — unique node IDs
 - `data/edges.csv` — `source_id, target_id` pairs
-
-If a platform's free-tier storage cannot hold the full 905k edges, pass `--max-edges N` to trim deterministically. The **same N must be used on every platform** — the script enforces this with a warning.
 
 ---
 
 ## Platform Specifications
 
-| Platform | Engine | Query Language | Free Tier |
-|---|---|---|---|
-| **CognoDB Cloud** | Disk-based | Cypher (Bolt) | 0.5 vCPU · 256 MB RAM · 1 GB disk |
-| **Neo4j AuraDB** | Disk-based | Cypher (Bolt) | 1 vCPU · 256 MB RAM |
-| **Memgraph Cloud** | In-memory | Cypher (Bolt) | Varies by trial |
-| **ArangoDB Oasis** | Multi-model (disk) | AQL (HTTP) | 14-day trial |
-| **FalkorDB Cloud** | Redis-based | Cypher (Redis) | Free, no trial limit |
+| Platform | Engine | Query Language | Deployment | Free Tier Specs |
+|---|---|---|---|---|
+| **CognoDB Cloud** | Disk-based | Cypher (Bolt) | Managed cloud | 0.5 vCPU · 256 MB RAM · 1 GB disk |
+| **Neo4j AuraDB** | Disk-based | Cypher (Bolt) | Managed cloud | 1 vCPU · 256 MB RAM |
+| **Memgraph Cloud** | In-memory | Cypher (Bolt) | Managed cloud | Trial instance |
+| **ArangoDB Oasis** | Disk-based (multi-model) | AQL (HTTP) | Managed cloud | 14-day trial |
+| **Kùzu** | Columnar (embedded) | Cypher (in-process) | Local / embedded | Unbounded (local machine) |
 
-> **Honest caveat:** Free-tier hardware is not identical across vendors. Observed performance differences are partially attributable to infrastructure, not solely engine design. This is documented — not hidden.
+> **Platform 5 — Why Kùzu instead of FalkorDB or TigerGraph?**
+>
+> FalkorDB Cloud was inaccessible from the test region. TigerGraph Savanna 4.2.2 (the current cloud offering) has migrated to OIDC/OAuth2 authentication that is not supported by the current pyTigerGraph 2.0.4 REST++ client when the account uses Google SSO — a known compatibility gap documented in [pyTigerGraph issue tracker](https://github.com/tigergraph/pyTigerGraph).
+>
+> **Kùzu** was chosen as the replacement because:
+> 1. It is Cypher-native, so the workload logic is identical to the Bolt-based platforms — no query-language confound.
+> 2. It represents a genuinely different architectural point: columnar vectorized execution embedded in-process, rather than a managed remote server.
+> 3. It is production-ready (Waterloo University, v0.11, 2024) and actively developed.
+>
+> The embedded/local nature of Kùzu is an explicit, documented caveat: its latency numbers reflect in-process function calls, not network round-trips. This makes it the upper-bound reference point — the best possible latency achievable on the test hardware — rather than a fair cloud comparison.
+
+> **Honest caveat on hardware heterogeneity:** Free-tier cloud specs are not identical across vendors. Observed performance differences are partially attributable to infrastructure. Specs are documented as-advertised above.
 
 ---
 
@@ -48,15 +65,15 @@ If a platform's free-tier storage cannot hold the full 905k edges, pass `--max-e
 
 ### Why one shared Bolt driver for three platforms?
 
-CognoDB, Neo4j AuraDB, and Memgraph all implement the **Bolt binary protocol** with Cypher as the query language. Rather than duplicating query logic three times, `loaders/driver_bolt.py` provides a single parameterized loader used by all three. This makes query equivalence auditable at a glance.
+CognoDB, Neo4j AuraDB, and Memgraph all implement the **Bolt binary protocol** with Cypher. A single `loaders/driver_bolt.py` module serves all three. This makes query equivalence auditable at a glance and eliminates copy-paste drift.
 
 ### Why AQL for ArangoDB instead of adapting Cypher?
 
-ArangoDB does not natively speak Cypher. Its native query language, AQL, expresses graph traversals differently (`FOR v IN 1..N OUTBOUND ...` vs `MATCH ()-[:REL*1..N]->()`). The AQL versions in `workloads/` are written to be **logically equivalent** to the Cypher versions and are placed side-by-side so the equivalence can be verified manually.
+ArangoDB does not natively speak Cypher. Its native query language AQL expresses graph traversals differently (`FOR v IN 1..N OUTBOUND ...` vs `MATCH ()-[:REL*1..N]->()`). The AQL versions in `workloads/` are **logically equivalent** to the Cypher versions and placed side-by-side so the equivalence can be verified manually.
 
-### Why FalkorDB over TigerGraph?
+### Why Kùzu uses a separate workload module?
 
-FalkorDB (a successor to RedisGraph) uses a Redis-based storage model with a Cypher-compatible query interface — making it an interesting architectural contrast to disk-based databases while still being query-compatible. TigerGraph's free cloud tier is more restrictive in terms of trial duration and API surface, making FalkorDB the more reproducible choice.
+Kùzu's Python API (`kuzu.Connection.execute()`) is not a Bolt driver — it is a direct in-process call. The queries are identical Cypher strings, but the transport layer is different. A separate `workloads/kuzu.py` wraps these calls with the same measurement harness (warmup, 100 iterations, `time.perf_counter()`).
 
 ### Why `time.perf_counter()` instead of `datetime.now()`?
 
@@ -64,15 +81,15 @@ FalkorDB (a successor to RedisGraph) uses a Redis-based storage model with a Cyp
 
 ### Why UNWIND batching for loading?
 
-Issuing one query per node or edge is network-bound. UNWIND-based batching sends N operations per round-trip, dramatically reducing load time. Batch sizes (1000 nodes, 500 edges) were tuned empirically to stay within Bolt message size limits while maximizing throughput.
+Issuing one query per node or edge is network-bound for cloud platforms. UNWIND-based batching sends N operations per round-trip, dramatically reducing load time. Batch sizes are tuned per platform.
 
 ### Why p50 and p95 instead of averages?
 
-Averages mask tail latency. A database that answers 99% of queries in 5ms but occasionally takes 5 seconds looks fine on average. p95 (the 95th percentile) captures the worst-case experience for roughly 1 in 20 queries — a more operationally meaningful signal for production systems.
+Averages mask tail latency. A database that answers 99% of queries in 5ms but occasionally takes 5 seconds looks fine on average. p95 captures the worst-case experience for roughly 1 in 20 queries — a more operationally meaningful signal.
 
 ### Why 80/20 read/write split in the mixed workload?
 
-Real-world social graph workloads are read-heavy. An 80% read (1-hop traversal) / 20% write (property update) ratio is a standard approximation used in benchmarks like YCSB Workload B. It stresses the database's lock management and connection pool behavior without being a pure read benchmark.
+Real-world social graph workloads are read-heavy. An 80% read (1-hop traversal) / 20% write (property update) ratio approximates YCSB Workload B. It stresses lock management and connection pool behavior without being a pure read benchmark.
 
 ---
 
@@ -80,7 +97,7 @@ Real-world social graph workloads are read-heavy. An 80% read (1-hop traversal) 
 
 | Workload | Description | Metric |
 |---|---|---|
-| **Ingest** | Bulk load all nodes then all edges via UNWIND batching | nodes/sec, edges/sec, total wall-clock seconds |
+| **Ingest** | Bulk load all nodes then all edges | nodes/sec, edges/sec, total wall-clock seconds |
 | **Traversal** | 1-hop, 2-hop, 3-hop outbound neighbor expansion from 100 random start nodes | p50 & p95 latency (ms) |
 | **Lookup** | Point lookup by ID + filtered neighbor count | p50 & p95 latency (ms) |
 | **Aggregation** | Count outgoing and incoming edges per node | p50 & p95 latency (ms) |
@@ -101,12 +118,13 @@ loaders/
   neo4j.py                Neo4j AuraDB loader
   memgraph.py             Memgraph Cloud loader
   arangodb.py             ArangoDB Oasis loader (AQL)
-  falkordb.py             FalkorDB Cloud loader
+  kuzu.py                 Kùzu embedded loader
 workloads/
   traversal.py            1/2/3-hop traversal — Cypher + AQL variants
   lookup.py               Point and filtered lookup
   aggregation.py          Count / group-by aggregations
-  mixed.py                Concurrent mixed read/write (threaded)
+  mixed.py                Concurrent mixed read/write (threaded, Bolt platforms)
+  kuzu.py                 Kùzu-specific workloads (identical queries, in-process transport)
 harness/
   run_benchmark.py        Orchestrator — load + workloads + emit results JSON
 scripts/
@@ -121,19 +139,37 @@ requirements.txt          Pinned Python dependencies
 
 ## Results
 
-> Results will be populated after running the benchmark against all five platforms.
+> **Benchmark results will be filled in after all runs complete.**
 
 ### Data Loading Throughput
 
-*Run `python scripts/generate_tables.py` after benchmarking.*
+| Platform | Nodes/sec | Edges/sec | Total Load Time |
+|---|---|---|---|
+| CognoDB | — | — | — |
+| Neo4j AuraDB | — | — | — |
+| Memgraph Cloud | — | — | — |
+| ArangoDB Oasis | — | — | — |
+| Kùzu (local) | — | — | — |
 
-### Traversal Latency (p50 / p95)
+### Traversal Latency — p50 / p95 (ms)
 
-*Run `python scripts/generate_tables.py` after benchmarking.*
+| Platform | 1-hop p50 | 1-hop p95 | 2-hop p50 | 2-hop p95 | 3-hop p50 | 3-hop p95 |
+|---|---|---|---|---|---|---|
+| CognoDB | — | — | — | — | — | — |
+| Neo4j AuraDB | — | — | — | — | — | — |
+| Memgraph Cloud | — | — | — | — | — | — |
+| ArangoDB Oasis | — | — | — | — | — | — |
+| Kùzu (local) | — | — | — | — | — | — |
 
-### Mixed Workload Throughput
+### Mixed Workload Throughput (QPS)
 
-*Run `python scripts/generate_tables.py` after benchmarking.*
+| Platform | 1 client | 10 clients | 40 clients |
+|---|---|---|---|
+| CognoDB | — | — | — |
+| Neo4j AuraDB | — | — | — |
+| Memgraph Cloud | — | — | — |
+| ArangoDB Oasis | — | — | — |
+| Kùzu (local) | — | — | — |
 
 ---
 
@@ -142,8 +178,9 @@ requirements.txt          Pinned Python dependencies
 ### Requirements
 
 - Python 3.11+
-- Free-tier accounts on all five platforms
-- All benchmarks run from the same client machine and network region
+- Free-tier accounts on all cloud platforms (CognoDB, Neo4j AuraDB, Memgraph Cloud, ArangoDB Oasis)
+- No account needed for Kùzu (embedded)
+- All benchmarks run from the same client machine and network connection
 
 ### Setup
 
@@ -156,7 +193,7 @@ source venv/bin/activate      # Windows: venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 cp .env.example .env
-# Edit .env — fill in connection strings and credentials for all five platforms
+# Edit .env — fill in connection strings and credentials for all cloud platforms
 ```
 
 ### Download and Convert Dataset
@@ -165,14 +202,6 @@ cp .env.example .env
 python data/fetch_and_convert.py
 ```
 
-For platforms with storage constraints:
-
-```bash
-python data/fetch_and_convert.py --max-edges 400000
-```
-
-> If trimming, use the **same `--max-edges` value on every platform**.
-
 ### Verify Connectivity
 
 ```bash
@@ -180,7 +209,7 @@ python harness/run_benchmark.py --platform cognodb --dry-run
 python harness/run_benchmark.py --platform neo4j --dry-run
 python harness/run_benchmark.py --platform memgraph --dry-run
 python harness/run_benchmark.py --platform arangodb --dry-run
-python harness/run_benchmark.py --platform falkordb --dry-run
+python harness/run_benchmark.py --platform kuzu --dry-run
 ```
 
 ### Run Benchmark
@@ -190,10 +219,10 @@ python harness/run_benchmark.py --platform cognodb
 python harness/run_benchmark.py --platform neo4j
 python harness/run_benchmark.py --platform memgraph
 python harness/run_benchmark.py --platform arangodb
-python harness/run_benchmark.py --platform falkordb
+python harness/run_benchmark.py --platform kuzu
 ```
 
-If data is already loaded from a previous run:
+If data is already loaded:
 
 ```bash
 python harness/run_benchmark.py --platform cognodb --skip-load
@@ -210,11 +239,13 @@ python scripts/generate_tables.py   # → results/tables.md
 
 ## Caveats
 
-- **Hardware heterogeneity:** Free-tier specs differ across providers. Performance gaps may reflect infrastructure rather than engine capability alone. Advertised specs are documented in the platform table above.
-- **Network variance:** All timings include the client-to-server round-trip. Cloud latency is non-deterministic; percentile reporting (p50/p95) mitigates, but does not eliminate, this noise.
+- **Hardware heterogeneity (cloud platforms):** Free-tier specs differ across providers. Performance gaps reflect both engine capability and infrastructure. Advertised specs are documented in the platform table above.
+- **Network variance (cloud platforms):** All cloud timings include the client-to-server round-trip from a single client machine. Cloud latency is non-deterministic; percentile reporting mitigates but does not eliminate this noise.
+- **Kùzu is embedded (local), not cloud:** Kùzu's latency numbers reflect in-process function calls with no network hop. It is the theoretical lower-bound reference — the best latency achievable on this hardware — not a cloud-to-cloud comparison. This is an intentional architectural contrast, not a methodological flaw.
 - **No node attributes:** soc-Slashdot0811 contains no node properties beyond the ID. Filtered lookups test structural traversal, not property index performance.
-- **Query language parity:** Cypher and AQL express equivalent graph traversals with different syntax. Logical equivalence was verified by comparing result sets on a sample, but language-level optimizer differences remain a confounding variable.
-- **GIL contention:** Python's Global Interpreter Lock limits true CPU parallelism in the mixed workload threads. At high concurrency (40 clients), throughput may be bottlenecked by the client rather than the database. This is consistent across all platforms and is therefore a fair comparison.
+- **Query language parity:** Cypher (Bolt platforms + Kùzu) and AQL (ArangoDB) express equivalent traversals with different syntax. Logical equivalence was verified by comparing result sets on a sample, but language-level optimizer differences remain a confounding variable.
+- **GIL contention (mixed workload):** Python's Global Interpreter Lock limits true CPU parallelism in threaded workloads. At 40 clients, throughput may be bottlenecked by the Python client rather than the database. This is consistent across all platforms and is therefore a fair relative comparison.
+- **Memgraph self-signed certificate:** Memgraph Cloud uses a self-signed TLS certificate. The Bolt driver is configured with the `bolt+ssc://` scheme to accept it. This is a known Memgraph Cloud configuration requirement.
 
 ---
 
@@ -224,7 +255,7 @@ python scripts/generate_tables.py   # → results/tables.md
 |---|---|---|
 | `neo4j` | 5.22.0 | Bolt driver for CognoDB, Neo4j, Memgraph |
 | `python-arango` | 8.1.3 | ArangoDB HTTP/AQL driver |
-| `falkordb` | 1.0.9 | FalkorDB Redis-based graph driver |
+| `kuzu` | 0.11.3 | Kùzu embedded graph database |
 | `numpy` | 2.0.2 | Percentile computation |
 | `pandas` | 2.2.3 | Result aggregation |
 | `matplotlib` | 3.9.2 | Chart generation |

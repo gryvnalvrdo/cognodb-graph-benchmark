@@ -15,25 +15,36 @@ BATCH_SIZE = 500
 
 def get_conn():
     host = os.environ["TIGERGRAPH_HOST"]
-    secret = os.environ["TIGERGRAPH_SECRET"]
+    user = os.environ["TIGERGRAPH_USER"]
+    password = os.environ["TIGERGRAPH_PASSWORD"]
     graph = os.environ.get("TIGERGRAPH_GRAPH", "BenchmarkGraph")
 
-    conn = tg.TigerGraphConnection(host=host, graphname=graph)
+    conn = tg.TigerGraphConnection(
+        host=host,
+        graphname=graph,
+        username=user,
+        password=password,
+        tgCloud=True,
+        useCert=True,
+    )
+    secret = conn.createSecret()
     token = conn.getToken(secret)
     conn.apiToken = token[0] if isinstance(token, (list, tuple)) else token
     return conn
 
 
 def setup_schema(conn) -> None:
+    graph = os.environ.get("TIGERGRAPH_GRAPH", "BenchmarkGraph")
     try:
         conn.gsql(
+            f"USE GRAPH {graph}\n"
             "CREATE VERTEX User (PRIMARY_ID id INT, id INT) "
             'WITH primary_id_as_attribute="TRUE"\n'
             "CREATE DIRECTED EDGE FOLLOWS (FROM User, TO User)\n"
-            f"CREATE GRAPH {os.environ.get('TIGERGRAPH_GRAPH', 'BenchmarkGraph')} (User, FOLLOWS)"
+            f"ADD VERTEX User, EDGE FOLLOWS TO GRAPH {graph}"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[tigergraph] schema note: {e}")
 
 
 def load_nodes(conn, node_ids: list[int]) -> float:
