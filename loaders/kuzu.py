@@ -1,37 +1,32 @@
 import csv
 import json
-import os
 import time
 from pathlib import Path
 
-import pyTigerGraph as tg
-from dotenv import load_dotenv
-
-load_dotenv()
+import kuzu
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-BATCH_SIZE = 500
+DB_PATH = Path(__file__).parent.parent / "data" / "kuzu_db"
+BATCH_SIZE = 5000
 
 
-def get_conn():
-    host = os.environ["TIGERGRAPH_HOST"]
-    secret = os.environ["TIGERGRAPH_SECRET"]
-    graph = os.environ.get("TIGERGRAPH_GRAPH", "BenchmarkGraph")
+def get_db():
+    return kuzu.Database(str(DB_PATH))
 
-    conn = tg.TigerGraphConnection(host=host, graphname=graph)
-    token = conn.getToken(secret)
-    conn.apiToken = token[0] if isinstance(token, (list, tuple)) else token
-    return conn
+
+def get_conn(db=None):
+    if db is None:
+        db = get_db()
+    return kuzu.Connection(db)
 
 
 def setup_schema(conn) -> None:
     try:
-        conn.gsql(
-            "CREATE VERTEX User (PRIMARY_ID id INT, id INT) "
-            'WITH primary_id_as_attribute="TRUE"\n'
-            "CREATE DIRECTED EDGE FOLLOWS (FROM User, TO User)\n"
-            f"CREATE GRAPH {os.environ.get('TIGERGRAPH_GRAPH', 'BenchmarkGraph')} (User, FOLLOWS)"
-        )
+        conn.execute("CREATE NODE TABLE User(id INT64, PRIMARY KEY(id))")
+    except Exception:
+        pass
+    try:
+        conn.execute("CREATE REL TABLE FOLLOWS(FROM User TO User)")
     except Exception:
         pass
 
@@ -39,40 +34,49 @@ def setup_schema(conn) -> None:
 def load_nodes(conn, node_ids: list[int]) -> float:
     start = time.perf_counter()
     for i in range(0, len(node_ids), BATCH_SIZE):
-        batch = {str(nid): {"id": nid} for nid in node_ids[i : i + BATCH_SIZE]}
-        conn.upsertVertices("User", batch)
+        batch = node_ids[i : i + BATCH_SIZE]
+        params = [{"id": nid} for nid in batch]
+        conn.execute("UNWIND $rows AS row CREATE (:User {id: row.id})", {"rows": params})
     return time.perf_counter() - start
 
 
 def load_edges(conn, edges: list[tuple[int, int]]) -> float:
     start = time.perf_counter()
     for i in range(0, len(edges), BATCH_SIZE):
-        batch = [(str(s), str(d), {}) for s, d in edges[i : i + BATCH_SIZE]]
-        conn.upsertEdges("User", "FOLLOWS", "User", batch)
+        batch = edges[i : i + BATCH_SIZE]
+        params = [{"src": s, "dst": d} for s, d in batch]
+        conn.execute(
+            "UNWIND $rows AS row "
+            "MATCH (a:User {id: row.src}), (b:User {id: row.dst}) "
+            "CREATE (a)-[:FOLLOWS]->(b)",
+            {"rows": params},
+        )
     return time.perf_counter() - start
 
 
 def run(dry_run: bool = False) -> dict:
-    print("[tigergraph] Connecting ...")
-    conn = get_conn()
+    print("[kuzu] Initializing ...")
+    db = get_db()
+    conn = get_conn(db)
 
     with open(DATA_DIR / "nodes.csv") as f:
         nodes = [int(row["id"]) for row in csv.DictReader(f)]
     with open(DATA_DIR / "edges.csv") as f:
         edges = [(int(r["source_id"]), int(r["target_id"])) for r in csv.DictReader(f)]
 
-    print(f"[tigergraph] {len(nodes):,} nodes | {len(edges):,} edges")
+    print(f"[kuzu] {len(nodes):,} nodes | {len(edges):,} edges")
 
     if dry_run:
-        print("[tigergraph] dry-run: connectivity OK")
+        print("[kuzu] dry-run: OK")
         return {}
 
     setup_schema(conn)
+
     t_nodes = load_nodes(conn, nodes)
     t_edges = load_edges(conn, edges)
 
     return {
-        "platform": "tigergraph",
+        "platform": "kuzu",
         "load": {
             "node_count": len(nodes),
             "edge_count": len(edges),

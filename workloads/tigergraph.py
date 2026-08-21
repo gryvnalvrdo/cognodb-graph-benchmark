@@ -1,14 +1,9 @@
-import os
 import random
-import time
 import threading
+import time
 from typing import Callable
 
 import numpy as np
-import pyTigerGraph as tg
-from dotenv import load_dotenv
-
-load_dotenv()
 
 WARMUP_ITERATIONS = 10
 BENCH_ITERATIONS = 100
@@ -39,54 +34,25 @@ def _run_latency(fn: Callable, node_ids: list[int]) -> list[float]:
     return latencies
 
 
-def get_conn():
-    conn = tg.TigerGraphConnection(
-        host=os.environ["TIGERGRAPH_HOST"],
-        graphname=GRAPH_NAME,
-        username=os.environ["TIGERGRAPH_USER"],
-        password=os.environ["TIGERGRAPH_PASSWORD"],
-    )
-    conn.getToken(conn.createSecret())
-    return conn
+def _cypher(conn, query: str, params: dict):
+    conn.runInterpretedQuery(f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () {{\n{query}\n}}", params)
 
 
 def run_traversal(conn, node_ids: list[int]) -> dict:
-    gsql_queries = {
-        "1_hop": f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n  Seed = {{User.*}};\n  Hop1 = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == @id LIMIT 1000;\n  PRINT Hop1;\n}}",
+    queries = {
+        "1_hop": "MATCH (:User {id: @id})-[:FOLLOWS]->(n) RETURN n LIMIT 1000",
+        "2_hop": "MATCH (:User {id: @id})-[:FOLLOWS*1..2]->(n) RETURN n LIMIT 1000",
+        "3_hop": "MATCH (:User {id: @id})-[:FOLLOWS*1..3]->(n) RETURN n LIMIT 1000",
     }
 
-    def run_1hop(nid):
-        conn.runInterpretedQuery(
-            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n"
-            f"  Seed = {{User.*}};\n"
-            f"  Hop1 = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid} LIMIT 1000;\n"
-            f"  PRINT Hop1;\n}}"
-        )
-
-    def run_2hop(nid):
-        conn.runInterpretedQuery(
-            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n"
-            f"  Seed = {{User.*}};\n"
-            f"  Hop1 = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid};\n"
-            f"  Hop2 = SELECT t FROM Hop1:s-(FOLLOWS:e)->User:t LIMIT 1000;\n"
-            f"  PRINT Hop2;\n}}"
-        )
-
-    def run_3hop(nid):
-        conn.runInterpretedQuery(
-            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n"
-            f"  Seed = {{User.*}};\n"
-            f"  Hop1 = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid};\n"
-            f"  Hop2 = SELECT t FROM Hop1:s-(FOLLOWS:e)->User:t;\n"
-            f"  Hop3 = SELECT t FROM Hop2:s-(FOLLOWS:e)->User:t LIMIT 1000;\n"
-            f"  PRINT Hop3;\n}}"
-        )
-
     results = {}
-    for label, fn in [("1_hop", run_1hop), ("2_hop", run_2hop), ("3_hop", run_3hop)]:
+    for label, q in queries.items():
         print(f"  [tigergraph] traversal {label} ...")
-        results[label] = _percentiles(_run_latency(fn, node_ids))
-
+        results[label] = _percentiles(
+            _run_latency(lambda nid, cyq=q: conn.runInstalledQuery(
+                "runInterpretedQuery", {"query": cyq, "id": nid}
+            ), node_ids)
+        )
     return results
 
 
@@ -96,10 +62,10 @@ def run_lookup(conn, node_ids: list[int]) -> dict:
 
     def filtered_lookup(nid):
         conn.runInterpretedQuery(
-            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n"
+            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () {{\n"
             f"  Seed = {{User.*}};\n"
-            f"  Neighbors = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid} AND t.id > {nid} LIMIT 1000;\n"
-            f"  PRINT Neighbors.size();\n}}"
+            f"  Nbrs = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid} AND t.id > {nid} LIMIT 1000;\n"
+            f"  PRINT Nbrs.size();\n}}"
         )
 
     results = {}
@@ -113,15 +79,15 @@ def run_lookup(conn, node_ids: list[int]) -> dict:
 def run_aggregation(conn, node_ids: list[int]) -> dict:
     def count_follows(nid):
         conn.runInterpretedQuery(
-            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n"
+            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () {{\n"
             f"  Seed = {{User.*}};\n"
-            f"  Neighbors = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid};\n"
-            f"  PRINT Neighbors.size();\n}}"
+            f"  Nbrs = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid};\n"
+            f"  PRINT Nbrs.size();\n}}"
         )
 
     def count_followers(nid):
         conn.runInterpretedQuery(
-            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n"
+            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () {{\n"
             f"  Seed = {{User.*}};\n"
             f"  Followers = SELECT s FROM Seed:s-(FOLLOWS:e)->User:t WHERE t.id == {nid};\n"
             f"  PRINT Followers.size();\n}}"
@@ -147,7 +113,7 @@ def _worker(fn: Callable, node_ids: list[int], duration_sec: int, results: list)
 def run_mixed(conn, node_ids: list[int]) -> dict:
     def read_fn(nid):
         conn.runInterpretedQuery(
-            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () FOR GRAPH {GRAPH_NAME} {{\n"
+            f"USE GRAPH {GRAPH_NAME}\nINTERPRET QUERY () {{\n"
             f"  Seed = {{User.*}};\n"
             f"  Hop1 = SELECT t FROM Seed:s-(FOLLOWS:e)->User:t WHERE s.id == {nid} LIMIT 100;\n"
             f"  PRINT Hop1;\n}}"
@@ -173,6 +139,11 @@ def run_mixed(conn, node_ids: list[int]) -> dict:
         for t in threads:
             t.join()
         elapsed = time.perf_counter() - t0
-        sweep.append({"concurrency": c, "total_ops": sum(res_list), "duration_sec": round(elapsed, 2), "qps": round(sum(res_list) / elapsed, 2)})
+        sweep.append({
+            "concurrency": c,
+            "total_ops": sum(res_list),
+            "duration_sec": round(elapsed, 2),
+            "qps": round(sum(res_list) / elapsed, 2),
+        })
 
     return {"concurrency_sweep": sweep}

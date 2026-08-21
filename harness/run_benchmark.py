@@ -55,27 +55,27 @@ def _run_bolt(platform: str, dry_run: bool, skip_load: bool) -> dict:
     return result
 
 
-def _run_tigergraph(dry_run: bool, skip_load: bool) -> dict:
-    from loaders import tigergraph as tg_loader
-    from loaders.tigergraph import get_conn
-    from workloads import tigergraph as tg_workloads
+def _run_kuzu(dry_run: bool, skip_load: bool) -> dict:
+    from loaders import kuzu as kuzu_loader
+    from loaders.kuzu import get_db
+    from workloads import kuzu as kuzu_workloads
 
-    result = {"platform": "tigergraph", "timestamp": datetime.now(timezone.utc).isoformat()}
+    result = {"platform": "kuzu", "timestamp": datetime.now(timezone.utc).isoformat()}
 
     if dry_run:
-        get_conn()
-        print("[tigergraph] dry-run: connectivity OK")
+        get_db()
+        print("[kuzu] dry-run: OK")
         return result
 
-    result["load"] = tg_loader.run().get("load", {}) if not skip_load else "skipped"
-    conn = get_conn()
+    result["load"] = kuzu_loader.run().get("load", {}) if not skip_load else "skipped"
+    db = get_db()
     node_ids = _load_node_ids()
     sample = random.sample(node_ids, min(SAMPLE_SIZE, len(node_ids)))
 
-    result["traversal"] = tg_workloads.run_traversal(conn, sample)
-    result["lookup"] = tg_workloads.run_lookup(conn, sample)
-    result["aggregation"] = tg_workloads.run_aggregation(conn, sample)
-    result["mixed"] = tg_workloads.run_mixed(conn, node_ids)
+    result["traversal"] = kuzu_workloads.run_traversal(db, sample)
+    result["lookup"] = kuzu_workloads.run_lookup(db, sample)
+    result["aggregation"] = kuzu_workloads.run_aggregation(db, sample)
+    result["mixed"] = kuzu_workloads.run_mixed(db, node_ids)
 
     return result
 
@@ -107,7 +107,7 @@ def _run_arangodb(dry_run: bool, skip_load: bool) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="CognoDB Benchmark Harness")
-    parser.add_argument("--platform", required=True, choices=["cognodb", "neo4j", "memgraph", "arangodb", "tigergraph"])
+    parser.add_argument("--platform", required=True, choices=["cognodb", "neo4j", "memgraph", "arangodb", "kuzu"])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-load", action="store_true")
     args = parser.parse_args()
@@ -122,8 +122,8 @@ def main():
 
     if platform in ("cognodb", "neo4j", "memgraph"):
         result = _run_bolt(platform, args.dry_run, args.skip_load)
-    elif platform == "tigergraph":
-        result = _run_tigergraph(args.dry_run, args.skip_load)
+    elif platform == "kuzu":
+        result = _run_kuzu(args.dry_run, args.skip_load)
     else:
         result = _run_arangodb(args.dry_run, args.skip_load)
 

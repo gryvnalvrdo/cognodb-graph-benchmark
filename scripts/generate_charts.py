@@ -7,13 +7,13 @@ RESULTS_DIR = Path(__file__).parent.parent / "results"
 CHARTS_DIR = RESULTS_DIR / "charts"
 CHARTS_DIR.mkdir(parents=True, exist_ok=True)
 
-PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb", "tigergraph"]
+PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb", "kuzu"]
 PALETTE = {
     "cognodb": "#6C63FF",
     "neo4j": "#00BCD4",
     "memgraph": "#4CAF50",
     "arangodb": "#FF5722",
-    "tigergraph": "#E91E63",
+    "kuzu": "#FF9800",
 }
 
 
