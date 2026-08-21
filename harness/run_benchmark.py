@@ -55,7 +55,6 @@ def _run_bolt(platform: str, dry_run: bool, skip_load: bool) -> dict:
     return result
 
 
-
 def _run_arangodb(dry_run: bool, skip_load: bool) -> dict:
     from loaders import arangodb as arango_loader
     from loaders.arangodb import get_db
@@ -81,9 +80,39 @@ def _run_arangodb(dry_run: bool, skip_load: bool) -> dict:
     return result
 
 
+def _run_falkordb(dry_run: bool, skip_load: bool) -> dict:
+    from loaders import falkordb as falkordb_loader
+    from loaders.falkordb import get_graph
+    from workloads import traversal, lookup, aggregation, mixed
+
+    result = {"platform": "falkordb", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+    if dry_run:
+        graph = get_graph()
+        graph.query("RETURN 1")
+        print("[falkordb] dry-run: connectivity OK")
+        return result
+
+    result["load"] = falkordb_loader.run().get("load", {}) if not skip_load else "skipped"
+    graph = get_graph()
+    node_ids = _load_node_ids()
+    sample = random.sample(node_ids, min(SAMPLE_SIZE, len(node_ids)))
+
+    result["traversal"] = traversal.run_falkordb(graph, sample)
+    result["lookup"] = lookup.run_falkordb(graph, sample)
+    result["aggregation"] = aggregation.run_falkordb(graph, sample)
+    result["mixed"] = mixed.run_bolt(graph, node_ids, "falkordb")  # mixed.py auto-detects FalkorDB via hasattr(obj, "query")
+
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="CognoDB Benchmark Harness")
-    parser.add_argument("--platform", required=True, choices=["cognodb", "neo4j", "memgraph", "arangodb"])
+    parser.add_argument(
+        "--platform",
+        required=True,
+        choices=["cognodb", "neo4j", "memgraph", "arangodb", "falkordb"],
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-load", action="store_true")
     args = parser.parse_args()
@@ -98,6 +127,8 @@ def main():
 
     if platform in ("cognodb", "neo4j", "memgraph"):
         result = _run_bolt(platform, args.dry_run, args.skip_load)
+    elif platform == "falkordb":
+        result = _run_falkordb(args.dry_run, args.skip_load)
     else:
         result = _run_arangodb(args.dry_run, args.skip_load)
 

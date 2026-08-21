@@ -6,12 +6,15 @@ from typing import Callable
 DURATION_SEC = 30
 
 
-def _worker(fn: Callable, node_ids: list[int], duration_sec: int, results: list):
+def _worker(fn: Callable, node_ids: list[int], duration_sec: int, results: list, errors: list):
     count = 0
     deadline = time.perf_counter() + duration_sec
     while time.perf_counter() < deadline:
-        fn(random.choice(node_ids))
-        count += 1
+        try:
+            fn(random.choice(node_ids))
+            count += 1
+        except Exception as e:
+            errors.append(f"{type(e).__name__}: {e}")
     results.append(count)
 
 
@@ -25,8 +28,9 @@ def _run_concurrent(read_fn: Callable, write_fn: Callable, node_ids: list[int], 
             write_fn(nid)
 
     results = []
+    errors = []
     threads = [
-        threading.Thread(target=_worker, args=(mixed_fn, node_ids, DURATION_SEC, results))
+        threading.Thread(target=_worker, args=(mixed_fn, node_ids, DURATION_SEC, results, errors))
         for _ in range(concurrency)
     ]
     t0 = time.perf_counter()
@@ -36,9 +40,18 @@ def _run_concurrent(read_fn: Callable, write_fn: Callable, node_ids: list[int], 
         t.join()
     elapsed = time.perf_counter() - t0
 
+    if errors:
+        error_counts: dict[str, int] = {}
+        for err in errors:
+            error_counts[err] = error_counts.get(err, 0) + 1
+        print(f"    warning: {len(errors)} failed ops during mixed workload (concurrency={concurrency})")
+        for err, cnt in sorted(error_counts.items(), key=lambda x: -x[1])[:5]:
+            print(f"      - {cnt}x {err}")
+
     return {
         "concurrency": concurrency,
         "total_ops": sum(results),
+        "failed_ops": len(errors),
         "duration_sec": round(elapsed, 2),
         "qps": round(sum(results) / elapsed, 2),
     }

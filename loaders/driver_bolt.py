@@ -22,6 +22,20 @@ def get_driver(platform: str, retries: int = 5, delay_sec: float = 10.0) -> Driv
                 raise
 
 
+def clear_graph(driver: Driver, batch_size: int = 5000) -> None:
+    """Delete all nodes/relationships in batches, so re-running a loader against
+    an instance that still holds the old (untrimmed) dataset produces a clean,
+    correctly-sized graph instead of old+new data merged together."""
+    while True:
+        with driver.session() as session:
+            result = session.run(
+                f"MATCH (n) WITH n LIMIT {batch_size} DETACH DELETE n RETURN count(n) AS deleted"
+            )
+            deleted = result.single()["deleted"]
+        if deleted == 0:
+            break
+
+
 def create_indexes(driver: Driver) -> None:
     with driver.session() as session:
         session.run("CREATE INDEX user_id IF NOT EXISTS FOR (u:User) ON (u.id)")

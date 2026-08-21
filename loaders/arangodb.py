@@ -37,8 +37,15 @@ def setup_collections(db) -> None:
     if not db.has_collection("users"):
         db.create_collection("users")
         db.collection("users").add_persistent_index(fields=["id"], unique=True)
+    else:
+        # Clear any pre-existing data so a re-run with a different-sized dataset
+        # (e.g. after trimming) doesn't leave old + new documents mixed together.
+        db.collection("users").truncate()
+
     if not db.has_collection("follows"):
         db.create_collection("follows", edge=True)
+    else:
+        db.collection("follows").truncate()
 
 
 def load_nodes(db, node_ids: list[int]) -> float:
@@ -77,6 +84,7 @@ def run(dry_run: bool = False) -> dict:
         print("[arangodb] dry-run: connectivity OK")
         return {}
 
+    print("[arangodb] Setting up / clearing collections ...")
     setup_collections(db)
     t_nodes = load_nodes(db, nodes)
     t_edges = load_edges(db, edges)

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from loaders.driver_bolt import create_indexes, get_driver, load_edges_batch, load_nodes_batch
+from loaders.driver_bolt import clear_graph, create_indexes, get_driver, load_edges_batch, load_nodes_batch
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
@@ -29,6 +29,9 @@ def run(dry_run: bool = False) -> dict:
         print("[memgraph] dry-run: connectivity OK")
         driver.close()
         return {}
+
+    print("[memgraph] Clearing any existing graph data ...")
+    clear_graph(driver)
 
     create_indexes(driver)
     t_nodes = load_nodes_batch(driver, nodes)

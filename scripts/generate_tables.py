@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 RESULTS_DIR = Path(__file__).parent.parent / "results"
-PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb"]
+PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb", "falkordb"]
 
 
 def _load_results() -> dict:
@@ -43,6 +43,36 @@ def table_traversal(data: dict) -> str:
     return "\n".join(rows)
 
 
+def table_lookup(data: dict) -> str:
+    rows = ["## Lookup Latency (p50 / p95 ms)", "", "| Platform | Point p50 | Point p95 | Filtered p50 | Filtered p95 |", "|---|---|---|---|---|"]
+    for p in PLATFORMS:
+        if p not in data or "lookup" not in data[p]:
+            continue
+        l = data[p]["lookup"]
+        point = l.get("point_lookup", {})
+        filt = l.get("filtered_lookup", {})
+        rows.append(
+            f"| {p.capitalize()} | {_fmt(point.get('p50_ms'), 'ms')} | {_fmt(point.get('p95_ms'), 'ms')} "
+            f"| {_fmt(filt.get('p50_ms'), 'ms')} | {_fmt(filt.get('p95_ms'), 'ms')} |"
+        )
+    return "\n".join(rows)
+
+
+def table_aggregation(data: dict) -> str:
+    rows = ["## Aggregation Latency (p50 / p95 ms)", "", "| Platform | Count Follows p50 | Count Follows p95 | Count Followers p50 | Count Followers p95 |", "|---|---|---|---|---|"]
+    for p in PLATFORMS:
+        if p not in data or "aggregation" not in data[p]:
+            continue
+        a = data[p]["aggregation"]
+        cf = a.get("count_follows", {})
+        cr = a.get("count_followers", {})
+        rows.append(
+            f"| {p.capitalize()} | {_fmt(cf.get('p50_ms'), 'ms')} | {_fmt(cf.get('p95_ms'), 'ms')} "
+            f"| {_fmt(cr.get('p50_ms'), 'ms')} | {_fmt(cr.get('p95_ms'), 'ms')} |"
+        )
+    return "\n".join(rows)
+
+
 def table_mixed_qps(data: dict) -> str:
     rows = ["## Mixed Workload Throughput (QPS)", "", "| Platform | 1 client | 10 clients | 40 clients |", "|---|---|---|---|"]
     for p in PLATFORMS:
@@ -59,7 +89,13 @@ def main():
     if not data:
         print("No results found.")
         return
-    output = "\n\n".join([table_load(data), table_traversal(data), table_mixed_qps(data)])
+    output = "\n\n".join([
+        table_load(data),
+        table_traversal(data),
+        table_lookup(data),
+        table_aggregation(data),
+        table_mixed_qps(data),
+    ])
     out_path = RESULTS_DIR / "tables.md"
     out_path.write_text(output)
     print(f"Tables written to {out_path}")

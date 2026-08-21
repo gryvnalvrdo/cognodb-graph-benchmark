@@ -34,14 +34,24 @@ def _percentiles(latencies_ms: list[float]) -> dict:
 
 
 def _run_latency(fn: Callable, node_ids: list[int]) -> list[float]:
+    warmup_errors = []
     for _ in range(WARMUP_ITERATIONS):
         try:
             fn(random.choice(node_ids))
-        except Exception:
-            pass
+        except Exception as e:
+            warmup_errors.append(e)
+
+    if warmup_errors:
+        # Surface the first warmup failure immediately — if every warmup call
+        # fails the same way, the benchmark loop below will too, so fail fast
+        # with the real error instead of grinding through 100 more iterations.
+        first = warmup_errors[0]
+        print(f"    warning: {len(warmup_errors)}/{WARMUP_ITERATIONS} warmup calls failed "
+              f"— first error: {type(first).__name__}: {first}")
 
     latencies = []
     failed = 0
+    error_samples: dict[str, str] = {}  # exception type -> one example message
     for _ in range(BENCH_ITERATIONS):
         node_id = random.choice(node_ids)
         for attempt in range(MAX_RETRIES):
@@ -50,13 +60,16 @@ def _run_latency(fn: Callable, node_ids: list[int]) -> list[float]:
                 fn(node_id)
                 latencies.append((time.perf_counter() - t0) * 1000)
                 break
-            except Exception:
+            except Exception as e:
+                error_samples.setdefault(type(e).__name__, str(e))
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_DELAY_SEC)
                 else:
                     failed += 1
     if failed > 0:
-        print(f"    warning: {failed}/{BENCH_ITERATIONS} iterations failed (connection dropped)")
+        print(f"    warning: {failed}/{BENCH_ITERATIONS} iterations failed")
+        for err_type, msg in error_samples.items():
+            print(f"      - {err_type}: {msg}")
     return latencies
 
 
@@ -96,6 +109,25 @@ def run_arangodb(db, node_ids: list[int]) -> dict:
                 lambda nid, q=query: list(db.aql.execute(q, bind_vars={"id": str(nid)})),
                 node_ids,
             )
+        )
+
+    return results
+
+def run_falkordb(graph, node_ids: list[int]) -> dict:
+    def execute(q: str, node_id: int):
+        graph.query(q, {"id": node_id})
+
+    queries = {
+        "1_hop": "MATCH (:User {id: $id})-[:FOLLOWS]->(n) RETURN n LIMIT 500",
+        "2_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..2]->(n) RETURN n LIMIT 100",
+        "3_hop": "MATCH (:User {id: $id})-[:FOLLOWS*1..3]->(n) RETURN n LIMIT 25",
+    }
+
+    results = {}
+    for hop_label, query in queries.items():
+        print(f"  [falkordb] traversal {hop_label} ...")
+        results[hop_label] = _percentiles(
+            _run_latency(lambda nid, q=query: execute(q, nid), node_ids)
         )
 
     return results

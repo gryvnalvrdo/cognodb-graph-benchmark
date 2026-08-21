@@ -1,19 +1,8 @@
 import json
 from pathlib import Path
-import matplotlib.pyplot as plt
-import numpy as np
 
 RESULTS_DIR = Path(__file__).parent.parent / "results"
-CHARTS_DIR = RESULTS_DIR / "charts"
-CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-
-PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb"]
-PALETTE = {
-    "cognodb": "#6C63FF",
-    "neo4j": "#00BCD4",
-    "memgraph": "#4CAF50",
-    "arangodb": "#FF5722",
-}
+PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb", "falkordb"]
 
 
 def _load_results() -> dict:
@@ -24,77 +13,92 @@ def _load_results() -> dict:
     }
 
 
-def chart_load_throughput(data: dict):
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    for ax, key, label in [
-        (axes[0], "nodes_per_sec", "Nodes / sec"),
-        (axes[1], "edges_per_sec", "Edges / sec"),
-    ]:
-        platforms = [p for p in data if isinstance(data[p].get("load"), dict)]
-        vals = [data[p]["load"].get(key, 0) for p in platforms]
-        bars = ax.bar([p.capitalize() for p in platforms], vals, color=[PALETTE.get(p, "#aaa") for p in platforms])
-        ax.set_title(f"Ingest Throughput — {label}")
-        ax.set_ylabel(label)
-        ax.grid(axis="y", alpha=0.3)
-        for bar, val in zip(bars, vals):
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{val:,.0f}", ha="center", va="bottom", fontsize=9)
-    plt.tight_layout()
-    plt.savefig(CHARTS_DIR / "load_throughput.png", dpi=150)
-    plt.close()
+def _fmt(val, unit="") -> str:
+    if not val:
+        return "N/A"
+    return f"{val:,.1f}{unit}" if isinstance(val, float) else f"{val:,}{unit}"
 
 
-def chart_traversal_latency(data: dict):
-    hops = ["1_hop", "2_hop", "3_hop"]
-    for metric in ["p50_ms", "p95_ms"]:
-        fig, ax = plt.subplots(figsize=(10, 5))
-        x = np.arange(len(hops))
-        width = 0.15
-        for i, (platform, result) in enumerate(data.items()):
-            if "traversal" not in result:
-                continue
-            vals = [result["traversal"].get(h, {}).get(metric, 0) for h in hops]
-            ax.bar(x + i * width, vals, width, label=platform.capitalize(), color=PALETTE.get(platform, "#aaa"))
-        ax.set_title(f"Traversal Latency — {metric.upper()}")
-        ax.set_xlabel("Hop Depth")
-        ax.set_ylabel(f"Latency ({metric})")
-        ax.set_xticks(x + width * 2)
-        ax.set_xticklabels(["1-hop", "2-hop", "3-hop"])
-        ax.legend()
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(CHARTS_DIR / f"traversal_{metric}.png", dpi=150)
-        plt.close()
+def table_load(data: dict) -> str:
+    rows = ["## Data Loading Throughput", "", "| Platform | Nodes/sec | Edges/sec | Total Load Time |", "|---|---|---|---|"]
+    for p in PLATFORMS:
+        if p not in data or not isinstance(data[p].get("load"), dict):
+            continue
+        l = data[p]["load"]
+        rows.append(f"| {p.capitalize()} | {_fmt(l.get('nodes_per_sec'))} | {_fmt(l.get('edges_per_sec'))} | {_fmt(l.get('total_load_sec'), 's')} |")
+    return "\n".join(rows)
 
 
-def chart_mixed_qps(data: dict):
-    fig, ax = plt.subplots(figsize=(10, 5))
-    concurrency_levels = [1, 10, 40]
-    for platform, result in data.items():
-        sweep = result.get("mixed", {}).get("concurrency_sweep", [])
-        qps_vals = [s.get("qps", 0) for s in sweep]
-        if len(qps_vals) == 3:
-            ax.plot(concurrency_levels, qps_vals, marker="o", label=platform.capitalize(), color=PALETTE.get(platform, "#aaa"))
-    ax.set_title("Mixed Workload — QPS vs Concurrency")
-    ax.set_xlabel("Concurrent Clients")
-    ax.set_ylabel("Queries / sec")
-    ax.set_xticks(concurrency_levels)
-    ax.legend()
-    ax.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(CHARTS_DIR / "mixed_qps.png", dpi=150)
-    plt.close()
+def table_traversal(data: dict) -> str:
+    rows = ["## Traversal Latency (p50 / p95 ms)", "", "| Platform | 1-hop p50 | 1-hop p95 | 2-hop p50 | 2-hop p95 | 3-hop p50 | 3-hop p95 |", "|---|---|---|---|---|---|---|"]
+    for p in PLATFORMS:
+        if p not in data or "traversal" not in data[p]:
+            continue
+        t = data[p]["traversal"]
+        row = f"| {p.capitalize()} "
+        for hop in ["1_hop", "2_hop", "3_hop"]:
+            h = t.get(hop, {})
+            row += f"| {_fmt(h.get('p50_ms'), 'ms')} | {_fmt(h.get('p95_ms'), 'ms')} "
+        rows.append(row + "|")
+    return "\n".join(rows)
+
+
+def table_lookup(data: dict) -> str:
+    rows = ["## Lookup Latency (p50 / p95 ms)", "", "| Platform | Point p50 | Point p95 | Filtered p50 | Filtered p95 |", "|---|---|---|---|---|"]
+    for p in PLATFORMS:
+        if p not in data or "lookup" not in data[p]:
+            continue
+        l = data[p]["lookup"]
+        point = l.get("point_lookup", {})
+        filt = l.get("filtered_lookup", {})
+        rows.append(
+            f"| {p.capitalize()} | {_fmt(point.get('p50_ms'), 'ms')} | {_fmt(point.get('p95_ms'), 'ms')} "
+            f"| {_fmt(filt.get('p50_ms'), 'ms')} | {_fmt(filt.get('p95_ms'), 'ms')} |"
+        )
+    return "\n".join(rows)
+
+
+def table_aggregation(data: dict) -> str:
+    rows = ["## Aggregation Latency (p50 / p95 ms)", "", "| Platform | Count Follows p50 | Count Follows p95 | Count Followers p50 | Count Followers p95 |", "|---|---|---|---|---|"]
+    for p in PLATFORMS:
+        if p not in data or "aggregation" not in data[p]:
+            continue
+        a = data[p]["aggregation"]
+        cf = a.get("count_follows", {})
+        cr = a.get("count_followers", {})
+        rows.append(
+            f"| {p.capitalize()} | {_fmt(cf.get('p50_ms'), 'ms')} | {_fmt(cf.get('p95_ms'), 'ms')} "
+            f"| {_fmt(cr.get('p50_ms'), 'ms')} | {_fmt(cr.get('p95_ms'), 'ms')} |"
+        )
+    return "\n".join(rows)
+
+
+def table_mixed_qps(data: dict) -> str:
+    rows = ["## Mixed Workload Throughput (QPS)", "", "| Platform | 1 client | 10 clients | 40 clients |", "|---|---|---|---|"]
+    for p in PLATFORMS:
+        if p not in data or "mixed" not in data[p]:
+            continue
+        sweep = data[p]["mixed"].get("concurrency_sweep", [])
+        qps = [_fmt(s.get("qps"), " qps") for s in sweep] + ["N/A"] * 3
+        rows.append(f"| {p.capitalize()} | {qps[0]} | {qps[1]} | {qps[2]} |")
+    return "\n".join(rows)
 
 
 def main():
     data = _load_results()
     if not data:
-        print("No results found. Run the benchmark first.")
+        print("No results found.")
         return
-    print(f"Generating charts for: {list(data.keys())}")
-    chart_load_throughput(data)
-    chart_traversal_latency(data)
-    chart_mixed_qps(data)
-    print(f"Charts saved to {CHARTS_DIR}")
+    output = "\n\n".join([
+        table_load(data),
+        table_traversal(data),
+        table_lookup(data),
+        table_aggregation(data),
+        table_mixed_qps(data),
+    ])
+    out_path = RESULTS_DIR / "tables.md"
+    out_path.write_text(output)
+    print(f"Tables written to {out_path}")
 
 
 if __name__ == "__main__":

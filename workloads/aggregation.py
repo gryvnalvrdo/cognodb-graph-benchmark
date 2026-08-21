@@ -33,3 +33,19 @@ def run_arangodb(db, node_ids: list[int]) -> dict:
         )
 
     return results
+
+def run_falkordb(graph, node_ids: list[int]) -> dict:
+    def execute(q: str, nid: int):
+        graph.query(q, {"id": nid})
+
+    queries = {
+        "count_follows": "MATCH (:User {id: $id})-[r:FOLLOWS]->() RETURN count(r) AS cnt",
+        "count_followers": "MATCH ()-[r:FOLLOWS]->(:User {id: $id}) RETURN count(r) AS cnt",
+    }
+
+    results = {}
+    for label, query in queries.items():
+        print(f"  [falkordb] aggregation {label} ...")
+        results[label] = _percentiles(_run_latency(lambda nid, q=query: execute(q, nid), node_ids))
+
+    return results
