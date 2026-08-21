@@ -10,6 +10,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")  # headless — no display needed
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import matplotlib.ticker as mticker
 import seaborn as sns
 
@@ -50,6 +51,10 @@ def _present_platforms(data: dict) -> list[str]:
     return [p for p in PLATFORMS if p in data]
 
 
+P50_COLOR = "#2E86AB"   # teal — always means p50, on every chart
+P95_COLOR = "#F18F01"   # amber — always means p95, on every chart
+
+
 def _bar_colors(platforms: list[str]) -> list[str]:
     return [PLATFORM_COLORS[p] for p in platforms]
 
@@ -61,8 +66,7 @@ def _labels(platforms: list[str]) -> list[str]:
 def _save(fig, name: str) -> None:
     CHARTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = CHARTS_DIR / name
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  wrote {out_path}")
 
@@ -88,6 +92,7 @@ def chart_load_throughput(data: dict) -> None:
             ax.text(i, v, f"{v:,.0f}", ha="center", va="bottom", fontsize=8)
 
     fig.suptitle("Data Loading Throughput (log scale)")
+    fig.tight_layout()
     _save(fig, "load_throughput.png")
 
 
@@ -107,16 +112,44 @@ def _hop_latency_chart(data: dict, category: str, hop_keys: list[str], hop_title
 
         x = range(len(platforms))
         width = 0.35
-        ax.bar([i - width / 2 for i in x], p50s, width, label="p50", color=_bar_colors(platforms), alpha=0.9)
-        ax.bar([i + width / 2 for i in x], p95s, width, label="p95", color=_bar_colors(platforms), alpha=0.5)
+        bars50 = ax.bar([i - width / 2 for i in x], p50s, width, color=P50_COLOR)
+        bars95 = ax.bar([i + width / 2 for i in x], p95s, width, color=P95_COLOR)
         ax.set_title(hop_title)
         ax.set_xticks(list(x))
         ax.set_xticklabels(_labels(platforms), rotation=25, ha="right")
         ax.set_yscale("log")
         ax.set_ylabel("ms")
-        ax.legend(fontsize=8)
+
+        # Label every bar with its exact value — on a log scale, small bars
+        # (e.g. FalkorDB's sub-1ms latencies) are visually tiny and easy to
+        # misread without the number printed directly above them.
+        for bars in (bars50, bars95):
+            for rect in bars:
+                h = rect.get_height()
+                if h <= 0:
+                    continue
+                label = f"{h:.1f}" if h < 10 else f"{h:.0f}"
+                ax.text(rect.get_x() + rect.get_width() / 2, h, label,
+                         ha="center", va="bottom", fontsize=7, rotation=90)
+
+        # Push the ceiling up so rotated value labels above the tallest bar
+        # never collide with the subplot title.
+        top = max(max(p50s, default=0), max(p95s, default=0))
+        if top > 0:
+            ax.set_ylim(top=top * 6)
+
+    # One shared legend for the whole figure instead of one per subplot —
+    # p50/p95 colors mean the same thing everywhere on this chart, so a
+    # single legend avoids repeating (and potentially overlapping bars with)
+    # the same two swatches three times.
+    legend_handles = [
+        mpatches.Patch(color=P50_COLOR, label="p50"),
+        mpatches.Patch(color=P95_COLOR, label="p95"),
+    ]
+    fig.legend(handles=legend_handles, loc="upper right", bbox_to_anchor=(0.99, 0.98), fontsize=9)
 
     fig.suptitle(suptitle)
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
     _save(fig, filename)
 
 
