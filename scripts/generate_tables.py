@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 RESULTS_DIR = Path(__file__).parent.parent / "results"
-PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb", "kuzu"]
+PLATFORMS = ["cognodb", "neo4j", "memgraph", "arangodb"]
 
 
 def _load_results() -> dict:
