@@ -14,13 +14,23 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 BATCH_SIZE = 1000
 
 
-def get_db():
-    client = ArangoClient(hosts=os.environ["ARANGODB_URL"])
-    return client.db(
-        os.environ.get("ARANGODB_DB", "benchmark"),
-        username=os.environ["ARANGODB_USER"],
-        password=os.environ["ARANGODB_PASSWORD"],
-    )
+def get_db(retries: int = 5, delay_sec: float = 10.0):
+    for attempt in range(retries):
+        try:
+            client = ArangoClient(hosts=os.environ["ARANGODB_URL"])
+            db = client.db(
+                os.environ.get("ARANGODB_DB", "benchmark"),
+                username=os.environ["ARANGODB_USER"],
+                password=os.environ["ARANGODB_PASSWORD"],
+            )
+            db.collections()
+            return db
+        except Exception:
+            if attempt < retries - 1:
+                print(f"[arangodb] Connection attempt {attempt + 1} failed, retrying in {delay_sec}s ...")
+                time.sleep(delay_sec)
+            else:
+                raise
 
 
 def setup_collections(db) -> None:
