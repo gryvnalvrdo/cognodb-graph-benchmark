@@ -7,11 +7,21 @@ from typing import Callable
 
 WARMUP_ITERATIONS = 10
 BENCH_ITERATIONS = 100
-MAX_RETRIES = 3
-RETRY_DELAY_SEC = 2.0
+MAX_RETRIES = 2
+RETRY_DELAY_SEC = 1.0
 
 
 def _percentiles(latencies_ms: list[float]) -> dict:
+    if not latencies_ms:
+        return {
+            "p50_ms": None,
+            "p95_ms": None,
+            "mean_ms": None,
+            "min_ms": None,
+            "max_ms": None,
+            "iterations": 0,
+            "note": "all iterations failed (likely memory limit exceeded)",
+        }
     arr = np.array(latencies_ms)
     return {
         "p50_ms": round(float(np.percentile(arr, 50)), 3),
@@ -31,6 +41,7 @@ def _run_latency(fn: Callable, node_ids: list[int]) -> list[float]:
             pass
 
     latencies = []
+    failed = 0
     for _ in range(BENCH_ITERATIONS):
         node_id = random.choice(node_ids)
         for attempt in range(MAX_RETRIES):
@@ -43,9 +54,10 @@ def _run_latency(fn: Callable, node_ids: list[int]) -> list[float]:
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_DELAY_SEC)
                 else:
-                    latencies.append(float("nan"))
-
-    return [x for x in latencies if not (isinstance(x, float) and x != x)]
+                    failed += 1
+    if failed > 0:
+        print(f"    warning: {failed}/{BENCH_ITERATIONS} iterations failed (connection dropped)")
+    return latencies
 
 
 def run_bolt(driver, node_ids: list[int], platform: str) -> dict:
