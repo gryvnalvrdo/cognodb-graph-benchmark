@@ -6,6 +6,3 @@ CLAUDE.md
 data/soc-Slashdot0811.txt.gz
 data/nodes.csv
 data/edges.csv
-results/*.json
-results/charts/
-results/tables.md

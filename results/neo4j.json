@@ -1,0 +1,98 @@
+{
+  "platform": "neo4j",
+  "timestamp": "2026-08-21T07:52:42.511374+00:00",
+  "load": {
+    "node_count": 28000,
+    "edge_count": 138593,
+    "node_load_sec": 3.843,
+    "edge_load_sec": 33.683,
+    "nodes_per_sec": 7286.2,
+    "edges_per_sec": 4114.6,
+    "total_load_sec": 37.526
+  },
+  "traversal": {
+    "1_hop": {
+      "p50_ms": 75.258,
+      "p95_ms": 84.847,
+      "mean_ms": 77.822,
+      "min_ms": 71.82,
+      "max_ms": 193.23,
+      "iterations": 100
+    },
+    "2_hop": {
+      "p50_ms": 79.837,
+      "p95_ms": 100.043,
+      "mean_ms": 101.145,
+      "min_ms": 72.763,
+      "max_ms": 1209.803,
+      "iterations": 100
+    },
+    "3_hop": {
+      "p50_ms": 75.769,
+      "p95_ms": 95.605,
+      "mean_ms": 79.999,
+      "min_ms": 70.351,
+      "max_ms": 200.921,
+      "iterations": 100
+    }
+  },
+  "lookup": {
+    "point_lookup": {
+      "p50_ms": 74.486,
+      "p95_ms": 108.098,
+      "mean_ms": 81.916,
+      "min_ms": 71.923,
+      "max_ms": 274.034,
+      "iterations": 100
+    },
+    "filtered_lookup": {
+      "p50_ms": 73.476,
+      "p95_ms": 85.747,
+      "mean_ms": 77.729,
+      "min_ms": 70.984,
+      "max_ms": 297.819,
+      "iterations": 100
+    }
+  },
+  "aggregation": {
+    "count_follows": {
+      "p50_ms": 74.841,
+      "p95_ms": 109.605,
+      "mean_ms": 87.272,
+      "min_ms": 71.531,
+      "max_ms": 876.263,
+      "iterations": 100
+    },
+    "count_followers": {
+      "p50_ms": 77.295,
+      "p95_ms": 205.095,
+      "mean_ms": 114.117,
+      "min_ms": 70.504,
+      "max_ms": 1102.542,
+      "iterations": 100
+    }
+  },
+  "mixed": {
+    "concurrency_sweep": [
+      {
+        "concurrency": 1,
+        "total_ops": 349,
+        "duration_sec": 30.01,
+        "qps": 11.63
+      },
+      {
+        "concurrency": 10,
+        "total_ops": 481,
+        "duration_sec": 31.09,
+        "qps": 15.47
+      },
+      {
+        "concurrency": 40,
+        "total_ops": 405,
+        "duration_sec": 30.87,
+        "qps": 13.12
+      }
+    ]
+  },
+  "total_benchmark_sec": 199.27
+}

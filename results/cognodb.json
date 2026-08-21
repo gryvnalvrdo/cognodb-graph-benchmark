@@ -1,0 +1,98 @@
+{
+  "platform": "cognodb",
+  "timestamp": "2026-08-21T07:24:38.137368+00:00",
+  "load": {
+    "node_count": 28000,
+    "edge_count": 138593,
+    "node_load_sec": 7.829,
+    "edge_load_sec": 79.6,
+    "nodes_per_sec": 3576.3,
+    "edges_per_sec": 1741.1,
+    "total_load_sec": 87.429
+  },
+  "traversal": {
+    "1_hop": {
+      "p50_ms": 273.822,
+      "p95_ms": 453.948,
+      "mean_ms": 306.559,
+      "min_ms": 248.495,
+      "max_ms": 673.992,
+      "iterations": 100
+    },
+    "2_hop": {
+      "p50_ms": 313.069,
+      "p95_ms": 429.119,
+      "mean_ms": 337.718,
+      "min_ms": 248.786,
+      "max_ms": 1095.91,
+      "iterations": 100
+    },
+    "3_hop": {
+      "p50_ms": 277.855,
+      "p95_ms": 1086.582,
+      "mean_ms": 368.761,
+      "min_ms": 248.189,
+      "max_ms": 1446.34,
+      "iterations": 100
+    }
+  },
+  "lookup": {
+    "point_lookup": {
+      "p50_ms": 294.119,
+      "p95_ms": 429.123,
+      "mean_ms": 315.467,
+      "min_ms": 249.294,
+      "max_ms": 782.344,
+      "iterations": 100
+    },
+    "filtered_lookup": {
+      "p50_ms": 327.447,
+      "p95_ms": 440.438,
+      "mean_ms": 337.523,
+      "min_ms": 251.99,
+      "max_ms": 577.059,
+      "iterations": 100
+    }
+  },
+  "aggregation": {
+    "count_follows": {
+      "p50_ms": 250.636,
+      "p95_ms": 286.188,
+      "mean_ms": 268.426,
+      "min_ms": 247.916,
+      "max_ms": 995.07,
+      "iterations": 100
+    },
+    "count_followers": {
+      "p50_ms": 250.359,
+      "p95_ms": 259.017,
+      "mean_ms": 251.79,
+      "min_ms": 248.441,
+      "max_ms": 290.074,
+      "iterations": 100
+    }
+  },
+  "mixed": {
+    "concurrency_sweep": [
+      {
+        "concurrency": 1,
+        "total_ops": 111,
+        "duration_sec": 30.08,
+        "qps": 3.69
+      },
+      {
+        "concurrency": 10,
+        "total_ops": 1102,
+        "duration_sec": 30.23,
+        "qps": 36.46
+      },
+      {
+        "concurrency": 40,
+        "total_ops": 4447,
+        "duration_sec": 30.25,
+        "qps": 147.02
+      }
+    ]
+  },
+  "total_benchmark_sec": 422.03
+}

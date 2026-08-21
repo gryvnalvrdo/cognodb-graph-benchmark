@@ -1,0 +1,98 @@
+{
+  "platform": "falkordb",
+  "timestamp": "2026-08-21T07:50:04.865300+00:00",
+  "load": {
+    "node_count": 28000,
+    "edge_count": 138593,
+    "node_load_sec": 0.768,
+    "edge_load_sec": 9.596,
+    "nodes_per_sec": 36457.5,
+    "edges_per_sec": 14442.5,
+    "total_load_sec": 10.364
+  },
+  "traversal": {
+    "1_hop": {
+      "p50_ms": 0.578,
+      "p95_ms": 0.801,
+      "mean_ms": 0.638,
+      "min_ms": 0.474,
+      "max_ms": 3.026,
+      "iterations": 100
+    },
+    "2_hop": {
+      "p50_ms": 0.918,
+      "p95_ms": 1.828,
+      "mean_ms": 1.096,
+      "min_ms": 0.464,
+      "max_ms": 1.995,
+      "iterations": 100
+    },
+    "3_hop": {
+      "p50_ms": 0.72,
+      "p95_ms": 1.011,
+      "mean_ms": 0.725,
+      "min_ms": 0.467,
+      "max_ms": 1.563,
+      "iterations": 100
+    }
+  },
+  "lookup": {
+    "point_lookup": {
+      "p50_ms": 0.481,
+      "p95_ms": 0.625,
+      "mean_ms": 0.501,
+      "min_ms": 0.406,
+      "max_ms": 1.013,
+      "iterations": 100
+    },
+    "filtered_lookup": {
+      "p50_ms": 0.531,
+      "p95_ms": 0.683,
+      "mean_ms": 0.551,
+      "min_ms": 0.461,
+      "max_ms": 1.113,
+      "iterations": 100
+    }
+  },
+  "aggregation": {
+    "count_follows": {
+      "p50_ms": 0.528,
+      "p95_ms": 0.647,
+      "mean_ms": 0.543,
+      "min_ms": 0.433,
+      "max_ms": 0.922,
+      "iterations": 100
+    },
+    "count_followers": {
+      "p50_ms": 0.513,
+      "p95_ms": 0.662,
+      "mean_ms": 0.535,
+      "min_ms": 0.449,
+      "max_ms": 0.892,
+      "iterations": 100
+    }
+  },
+  "mixed": {
+    "concurrency_sweep": [
+      {
+        "concurrency": 1,
+        "total_ops": 50061,
+        "duration_sec": 30.0,
+        "qps": 1668.63
+      },
+      {
+        "concurrency": 10,
+        "total_ops": 51665,
+        "duration_sec": 30.0,
+        "qps": 1721.97
+      },
+      {
+        "concurrency": 40,
+        "total_ops": 33756,
+        "duration_sec": 30.09,
+        "qps": 1121.87
+      }
+    ]
+  },
+  "total_benchmark_sec": 102.14
+}
